@@ -1,0 +1,15 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1000, "h": 640 },
+    { "file": "Expressoes.dc.html", "x": 1090, "y": 0, "w": 940, "h": 640 },
+    { "file": "Integracao.dc.html", "x": 0, "y": 780, "w": 820, "h": 700 },
+    { "file": "Acoes.dc.html", "x": 900, "y": 780, "w": 940, "h": 640 }
+  ],
+  "annotations": [
+    { "id": "como-funciona", "x": 0, "y": -170, "w": 340, "text": "Tama como assistente virtual\n\nO app escuta um named pipe (~/.local/share/tama/input). Qualquer programa escreve uma linha JSON (ou usa o CLI tama say, que so escreve no pipe). Mensagens entram numa fila e o pet fala uma por vez num balao.\n\n[a] alterna entre modo pet e modo assistente." },
+    { "id": "nota-expressoes", "x": 1090, "y": -130, "w": 300, "text": "O tipo da mensagem muda a cara do pet, a cor do balao e a animacao — da pra saber se e erro sem ler." },
+    { "id": "nota-integracao", "x": 0, "y": 1530, "w": 340, "text": "Implementacao sugerida no app atual: ler o pipe em modo non-blocking dentro do loop de 250ms que ja existe. O CLI vira subcomandos do mesmo binario (say, ask, lembrar, timer, do); tama ask escreve no input e espera a linha com seu id no output." },
+    { "id": "nota-acoes", "x": 900, "y": 1470, "w": 320, "text": "Alem de falar: perguntar (a resposta volta pro programa — aprovacoes de deploy, confirmar acoes), progresso de tarefas longas, lembrete/timer, e acoes de pet amarradas a eventos." }
+  ],
+  "launch": { "view": "canvas" }
+}

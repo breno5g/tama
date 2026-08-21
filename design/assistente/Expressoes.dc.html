@@ -1,0 +1,94 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;display=swap">
+  <style>
+    body { margin: 0; background: #16161e; }
+    a { color: #7dcfff; } a:hover { color: #b4f9f8; }
+  </style>
+</helmet>
+<div style="width: 940px; height: 640px; box-sizing: border-box; background: #16161e; color: #c0caf5; font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 13px; line-height: 1.5; padding: 24px; display: flex; flex-direction: column; gap: 18px;">
+  <div style="color: #bb9af7; font-weight: 700;">expressões por tipo de mensagem</div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; flex-grow: 1;">
+
+    <div style="border: 1px solid #3b4261; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+      <span style="color: #7dcfff; font-size: 12px;">info</span>
+      <pre style="margin: 0; font-family: inherit; font-size: 13px; line-height: 1.15; color: #7dcfff;"> ▄▄ ▄▄▄▄▄ ▄▄
+ █▄█▀▀▀▀▀█▄█
+ █ █     █ █
+█▀   ▀.▀   ▀█
+█▄▄▄     ▄▄▄█
+   ▀▀▀▀▀▀▀</pre>
+      <div style="border: 1px solid #7dcfff; padding: 4px 10px; font-size: 12px; color: #a9b1d6;">backup concluído</div>
+      <div style="color: #565f89; font-size: 11px; text-align: center;">cara neutra · balão azul</div>
+    </div>
+
+    <div style="border: 1px solid #3b4261; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+      <span style="color: #9ece6a; font-size: 12px;">sucesso</span>
+      <pre style="margin: 0; font-family: inherit; font-size: 13px; line-height: 1.15; color: #9ece6a;"> ▄▄ ▄▄▄▄▄ ▄▄
+ █▄█▀▀▀▀▀█▄█
+ █ █     █ █
+█▀   ▀w▀   ▀█
+█▄▄▄     ▄▄▄█
+   ▀▀▀▀▀▀▀</pre>
+      <div style="border: 1px solid #9ece6a; padding: 4px 10px; font-size: 12px; color: #a9b1d6;">deploy no ar!</div>
+      <div style="color: #565f89; font-size: 11px; text-align: center;">cara feliz · pulinho na animação</div>
+    </div>
+
+    <div style="border: 1px solid #3b4261; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+      <span style="color: #e0af68; font-size: 12px;">alerta</span>
+      <pre style="margin: 0; font-family: inherit; font-size: 13px; line-height: 1.15; color: #e0af68;"> ▄▄ ▄▄▄▄▄ ▄▄
+ █▄█▀▀▀▀▀█▄█
+ █ O     O █
+█▀   ▀o▀   ▀█
+█▄▄▄     ▄▄▄█
+   ▀▀▀▀▀▀▀</pre>
+      <div style="border: 1px solid #e0af68; padding: 4px 10px; font-size: 12px; color: #a9b1d6;">disco em 91%</div>
+      <div style="color: #565f89; font-size: 11px; text-align: center;">olhos arregalados · balão amarelo</div>
+    </div>
+
+    <div style="border: 1px solid #3b4261; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+      <span style="color: #f7768e; font-size: 12px;">erro</span>
+      <pre style="margin: 0; font-family: inherit; font-size: 13px; line-height: 1.15; color: #f7768e;"> ▄▄ ▄▄▄▄▄ ▄▄
+ █▄█▀▀▀▀▀█▄█
+ █ ;     ; █
+█▀   ▀~▀   ▀█
+█▄▄▄     ▄▄▄█
+   ▀▀▀▀▀▀▀</pre>
+      <div style="border: 1px solid #f7768e; padding: 4px 10px; font-size: 12px; color: #a9b1d6;">build falhou na main</div>
+      <div style="color: #565f89; font-size: 11px; text-align: center;">cara triste · balão vermelho · treme</div>
+    </div>
+
+    <div style="border: 1px solid #3b4261; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+      <span style="color: #bb9af7; font-size: 12px;">ação: comemorar</span>
+      <pre style="margin: 0; font-family: inherit; font-size: 13px; line-height: 1.15; color: #bb9af7;">*  ▄▄ ▄▄▄▄▄ ▄▄  +
+ █▄█▀▀▀▀▀█▄█
++█ █     █ █ *
+█▀   ▀w▀   ▀█
+█▄▄▄     ▄▄▄█
+ * ▀▀▀▀▀▀▀ +</pre>
+      <div style="color: #565f89; font-size: 11px; text-align: center;">sem balão: só a animação<br>confete + pulos por ~3s</div>
+    </div>
+
+    <div style="border: 1px solid #3b4261; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+      <span style="color: #565f89; font-size: 12px;">ação: dormir / acordar</span>
+      <pre style="margin: 0; font-family: inherit; font-size: 13px; line-height: 1.15; color: #565f89;">       z Z z
+ ▄▄ ▄▄▄▄▄ ▄▄
+ █▄█▀▀▀▀▀█▄█
+ █ ▄     ▄ █
+█▀   ▀.▀   ▀█
+█▄▄▄     ▄▄▄█</pre>
+      <div style="color: #565f89; font-size: 11px; text-align: center;">programas controlam o estado:<br>foco/pomodoro põe o pet pra dormir</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

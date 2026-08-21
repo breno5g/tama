@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;display=swap">
+  <style>
+    body { margin: 0; background: #16161e; }
+    a { color: #7dcfff; } a:hover { color: #b4f9f8; }
+  </style>
+</helmet>
+<div style="width: 820px; height: 620px; box-sizing: border-box; background: #16161e; color: #c0caf5; font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 13px; line-height: 1.6; padding: 28px; display: flex; flex-direction: column; gap: 20px;">
+  <div style="color: #bb9af7; font-weight: 700;">como programas externos falam com o tama</div>
+
+  <div style="border: 1px solid #3b4261; position: relative; padding: 20px 18px 14px 18px; display: flex; flex-direction: column; gap: 6px;">
+    <span style="position: absolute; top: -9px; left: 12px; background: #16161e; padding: 0 6px; color: #565f89; font-size: 12px;">1 · cli</span>
+    <div><span style="color: #565f89;">$ </span><span style="color: #7dcfff;">tama say</span> <span style="color: #9ece6a;">"deploy concluído com sucesso!"</span> <span style="color: #e0af68;">--de</span> deploy-bot <span style="color: #e0af68;">--tipo</span> sucesso</div>
+    <div style="color: #565f89; font-size: 12px;">o jeito simples: qualquer script, alias ou hook chama o binário.</div>
+  </div>
+
+  <div style="border: 1px solid #3b4261; position: relative; padding: 20px 18px 14px 18px; display: flex; flex-direction: column; gap: 6px;">
+    <span style="position: absolute; top: -9px; left: 12px; background: #16161e; padding: 0 6px; color: #565f89; font-size: 12px;">2 · named pipe (uma linha json por mensagem)</span>
+    <div><span style="color: #565f89;">$ </span><span style="color: #7dcfff;">echo</span> <span style="color: #9ece6a;">'{"fala":"testes passaram (142/142)","tipo":"info","de":"ci-bot"}'</span> <span style="color: #c0caf5;">&gt;</span> ~/.local/share/tama/input</div>
+    <div style="color: #565f89; font-size: 12px;">sem dependência do binário: serve pra qualquer linguagem, cron, CI, hook de git.</div>
+  </div>
+
+  <div style="border: 1px solid #3b4261; position: relative; padding: 20px 18px 14px 18px; display: flex; flex-direction: column; gap: 6px;">
+    <span style="position: absolute; top: -9px; left: 12px; background: #16161e; padding: 0 6px; color: #565f89; font-size: 12px;">3 · ações úteis (o pet faz, não só fala)</span>
+    <div><span style="color: #565f89;">$ </span><span style="color: #7dcfff;">tama ask</span> <span style="color: #9ece6a;">"subir release 2.4 pra produção?"</span> <span style="color: #e0af68;">--opcoes</span> sim,nao <span style="color: #565f89;"># bloqueia e imprime a escolha no stdout</span></div>
+    <div><span style="color: #565f89;">$ </span><span style="color: #7dcfff;">tama lembrar</span> <span style="color: #9ece6a;">"standup"</span> <span style="color: #e0af68;">--em</span> 10m</div>
+    <div><span style="color: #565f89;">$ </span><span style="color: #7dcfff;">tama timer</span> 25m <span style="color: #565f89;"># pomodoro no cabeçalho; alarme no fim</span></div>
+    <div><span style="color: #565f89;">$ </span><span style="color: #7dcfff;">echo</span> <span style="color: #9ece6a;">'{"progresso":62,"de":"backup"}'</span> <span style="color: #c0caf5;">&gt;</span> ~/.local/share/tama/input</div>
+    <div><span style="color: #565f89;">$ </span><span style="color: #7dcfff;">tama do</span> comemorar <span style="color: #565f89;"># ações de pet: comemorar · dormir · acordar · alimentar</span></div>
+  </div>
+
+  <div style="border: 1px solid #3b4261; position: relative; padding: 20px 18px 14px 18px; display: flex; flex-direction: column; gap: 4px;">
+    <span style="position: absolute; top: -9px; left: 12px; background: #16161e; padding: 0 6px; color: #565f89; font-size: 12px;">contrato</span>
+    <div style="color: #a9b1d6;">entrada: <span style="color: #9ece6a;">fala</span> · <span style="color: #9ece6a;">pergunta</span>+<span style="color: #9ece6a;">opcoes</span>+<span style="color: #9ece6a;">id</span> · <span style="color: #9ece6a;">progresso</span> · <span style="color: #9ece6a;">lembrete</span>+<span style="color: #9ece6a;">em</span> · <span style="color: #9ece6a;">acao</span> — mais <span style="color: #9ece6a;">tipo</span> info|sucesso|alerta|erro e <span style="color: #9ece6a;">de</span> origem</div>
+    <div style="color: #a9b1d6;">saída: respostas viram linhas JSON em <span style="color: #7dcfff;">~/.local/share/tama/output</span> — <span style="color: #9ece6a;">{"id":"rel-24","resposta":"sim"}</span> (o CLI tama ask lê isso e imprime por você)</div>
+    <div style="color: #565f89; font-size: 12px;">mensagens entram numa fila; perguntas têm prioridade. linha inválida é ignorada em silêncio.</div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

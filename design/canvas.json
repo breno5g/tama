@@ -1,0 +1,13 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1000, "h": 700 },
+    { "file": "Cardapio.dc.html", "x": 1090, "y": 0, "w": 560, "h": 560 },
+    { "file": "MiniPainel.dc.html", "x": 1090, "y": 690, "w": 460, "h": 320 }
+  ],
+  "annotations": [
+    { "id": "visao-geral", "x": 0, "y": -190, "w": 340, "text": "Proposta: tama 2.0\n\n- pet com nome, nivel e xp\n- nova stat: higiene (e a acao banho)\n- ciclo dia/noite no topo\n- cenario (grama) e balao de fala\n- log de eventos com timestamps\n- painel de humor com gostos\n- novas acoes: banho e minigame" },
+    { "id": "nota-cardapio", "x": 1090, "y": -150, "w": 300, "text": "Cardapio substitui o [f] unico: cada comida tem efeitos e tradeoffs (bolinho suja o pet). Selecao com setas, highlight na linha ativa." },
+    { "id": "nota-mini", "x": 1090, "y": 1080, "w": 300, "text": "Mini painel (pane de tmux): alem das barras compactas, ganha nome, ponto de humor, nivel e um ticker com o ultimo evento." }
+  ],
+  "launch": { "view": "canvas" }
+}
