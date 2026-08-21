@@ -290,6 +290,19 @@ pub struct HomeView<'a> {
     pub progress: Option<Line>,
 }
 
+// Design: dimmed label, only the countdown in yellow.
+fn timer_segs(view: &HomeView) -> Line {
+    view.timer
+        .as_ref()
+        .map(|t| {
+            vec![
+                seg(format!("{} ", i18n::TIMER_LABEL), Some(Color::DarkGrey)),
+                seg(t.clone(), Some(Color::Yellow)),
+            ]
+        })
+        .unwrap_or_default()
+}
+
 fn header_parts(pet: &Pet, view: &HomeView) -> (Line, Line) {
     let (sym, sym_color) = if (6..18).contains(&view.hour) { ("☀", Color::Yellow) } else { ("☾", Color::Blue) };
     let zen = if pet.zen { format!("  ({})", i18n::ZEN_TAG) } else { String::new() };
@@ -301,9 +314,9 @@ fn header_parts(pet: &Pet, view: &HomeView) -> (Line, Line) {
             Some(Color::DarkGrey),
         ),
     ];
-    let mut right: Line = Vec::new();
-    if let Some(t) = &view.timer {
-        right.push(seg(format!("{} {t}   ", i18n::TIMER_LABEL), Some(Color::Yellow)));
+    let mut right: Line = timer_segs(view);
+    if !right.is_empty() {
+        right.push(seg("   ", None));
     }
     right.push(seg(format!("{sym} "), Some(sym_color)));
     right.push(seg(format!("{} {} · {}", i18n::DAY, pet.day(), view.clock_text), Some(Color::DarkGrey)));
@@ -344,13 +357,16 @@ pub fn kind_mood(kind: Kind) -> Mood {
     }
 }
 
+// As in the design's progress row: task name, a long green bar, green percent.
 pub fn progress_line(from: &str, pct: u8) -> Line {
-    let cells = 10usize;
+    let cells = 20usize;
     let filled = (pct as usize * cells) / 100;
+    let name = if from.is_empty() { i18n::PROGRESS_DEFAULT } else { from };
     vec![
-        seg(format!("{} ", i18n::msg_progress(from, pct)), Some(Color::Cyan)),
-        seg("█".repeat(filled), Some(Color::Cyan)),
+        seg(format!("{name} "), None),
+        seg("█".repeat(filled), Some(Color::Green)),
         seg("░".repeat(cells - filled), Some(Color::DarkGrey)),
+        seg(format!(" {pct}%"), Some(Color::Green)),
     ]
 }
 
@@ -733,10 +749,10 @@ pub fn draw_assistant(
             right.extend(panel(&format!("{} ({queue_len})", i18n::PANEL_QUEUE), &queue_body, right_w));
 
             // Design: identity on the left, the "modo assistente" chip on the right.
-            let (mut header, hdr_right) = header_parts(pet, view);
-            let mut chip: Line = Vec::new();
-            if let Some((t, ..)) = hdr_right.first().filter(|_| view.timer.is_some()) {
-                chip.push(seg(t.clone(), Some(Color::Yellow)));
+            let (mut header, _) = header_parts(pet, view);
+            let mut chip: Line = timer_segs(view);
+            if !chip.is_empty() {
+                chip.push(seg("   ", None));
             }
             chip.push((format!(" {} ", i18n::ASSISTANT_TAG), Some(Color::Cyan), Some(Color::DarkGrey)));
             let pad = w.saturating_sub(line_w(&header) + line_w(&chip));

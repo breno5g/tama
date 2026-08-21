@@ -115,10 +115,7 @@ pub fn msg_reminder(text: &str) -> String {
     format!("lembrete: {text}")
 }
 pub const MSG_TIMER_DONE: &str = "tempo esgotado!";
-pub fn msg_progress(from: &str, pct: u8) -> String {
-    let from = if from.is_empty() { "progresso" } else { from };
-    format!("{from} {pct}%")
-}
+pub const PROGRESS_DEFAULT: &str = "progresso";
 pub fn msg_progress_done(from: &str) -> String {
     let from = if from.is_empty() { "tarefa" } else { from };
     format!("{from} concluído!")
