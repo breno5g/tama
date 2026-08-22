@@ -57,6 +57,11 @@ ticker, progresso e eventos têm espaço reservado, então nada pula na tela.
 
 Programas externos falam com o tama por um named pipe **ou por HTTP**;
 respostas saem num arquivo de saída (pipe/CLI) ou na própria resposta HTTP.
+Pergunta se responde com as teclas `1-9`. Quando ela aceita texto livre
+(`input`), a última opção da lista é **outra (escrever)** — como o "Other"
+dos prompts do Claude: escolher ela (ou apertar `t`) abre um campo, `enter`
+envia e `esc` volta para a lista. É assim que um LLM recebe prosa de volta,
+e não só uma das opções que ele imaginou.
 A API — comandos, flags, chaves e valores do protocolo — é em inglês; só o
 que aparece na tela segue em português. Mensagem chegando abre o modo
 assistente sozinha; perguntas furam a fila **e interrompem qualquer tela**
@@ -71,6 +76,8 @@ tama ask "subir pra produção?" --options sim,nao  # bloqueia; imprime a escolh
 tama ask "qual banco?" --options "Postgres" --options "Sim, o de sempre" \
   --timeout 60s --default "Postgres"              # --options repetível aceita vírgula;
                                                   # expirou -> imprime o --default (sem ele: exit 124)
+tama ask "resuma o que fazer" --input             # só texto; com --options, vira
+                                                  # "outra (escrever)" no fim da lista
 tama remind "standup" --in 10m
 tama timer 25m                                    # regressivo no cabeçalho
 tama do celebrate                                 # celebrate · sleep · wake · feed
@@ -121,9 +128,9 @@ await fetch("http://tablet:8262/", { method: "POST",
   .then(r => r.json()); // { answer: "sim" }
 ```
 
-Um POST com `actions` **segura a conexão até você responder na TUI** e
-devolve `{"answer":"sim"}`; sem resposta até `expires` (default: 5 min)
-devolve `408` + `{"answer":null}`. Os demais respondem `{"ok":true}` na
+Um POST com `actions` (ou `"input":true`) **segura a conexão até você
+responder na TUI** e devolve `{"answer":"sim"}`; sem resposta até `expires`
+(default: 5 min) devolve `408` + `{"answer":null}`. Os demais respondem `{"ok":true}` na
 hora; corpo inválido dá `400`. `GET /` responde `{"ok":true,"pet":"nome"}`
 (bom de health-check). Se `TAMA_TOKEN` estiver setado ao abrir o app, todo
 request precisa de `Authorization: Bearer <token>` (senão: aberto — pense
@@ -137,6 +144,7 @@ LAN de casa; o HTTP não responde perguntas nem lê nada do pet).
 | `from` | string | origem exibida |
 | `type` | `info\|success\|warn\|error` | cor/expressão da fala |
 | `actions` | array de strings (ou string com `\n`) | opções de resposta (máx. 9) |
+| `input` | `true` | adiciona "outra (escrever)" à lista; sem `actions`, abre o campo direto |
 | `command` | `celebrate\|sleep\|wake\|feed` | ação no pet; pode vir junto de `message` |
 | `id` | string | identifica a resposta (HTTP gera sozinho) |
 | `expires` | epoch | pergunta some sem resposta depois disso |
@@ -214,7 +222,9 @@ aparece no Claude Code normalmente — nada trava.
   `decidir no claude` (ou timeout) devolve o prompt ao harness.
 - `tama-question.sh` (hook `PreToolUse` com matcher `AskUserQuestion`,
   requer `jq`): cada pergunta do Claude vira um `tama ask` com as mesmas
-  opções; a escolha volta para o Claude como feedback e ele continua.
+  opções mais `--input`, então a lista termina em "outra (escrever)" para
+  responder algo que o Claude não ofereceu; a escolha volta para ele como
+  feedback e ele continua.
 - Claude no desktop, tama no celular (Termux): os scripts leem `TAMA_CMD`,
   então `"command": "TAMA_CMD='ssh tamafone tama' /caminho/scripts/tama-permission.sh"`
   manda as perguntas para o telefone (alias `tamafone` do

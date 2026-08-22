@@ -1035,6 +1035,8 @@ pub struct AssistantMsg<'a> {
     pub kind_label: &'a str,
     pub options: Option<&'a [String]>,
     pub expires_in: Option<u64>, // seconds until the ask is dropped
+    pub input: Option<&'a str>,  // Some = typing a free-text answer right now
+    pub input_ok: bool,          // a typed answer is offered as one more option
 }
 
 const BUBBLE_TEXT_ROWS: usize = 4; // fixed: message length must not resize the layout
@@ -1067,6 +1069,43 @@ fn wrapped_text(text: &str, w: usize, rows: usize) -> Vec<Line> {
         *last = format!("{keep}…");
     }
     wrapped.into_iter().map(plain).collect()
+}
+
+// The typed-answer field, right-anchored so the caret stays visible while
+// the text grows past the width.
+fn input_row(buf: &str, w: usize) -> Line {
+    let inner = w.saturating_sub(3); // "> " + caret
+    let shown: String = match buf.chars().count() > inner {
+        true => buf.chars().skip(buf.chars().count() - inner).collect(),
+        false => buf.to_string(),
+    };
+    vec![seg("> ", Some(Color::DarkGrey)), seg(shown, None), seg("_", Some(Color::Cyan))]
+}
+
+// Rows an ask occupies below its text: the typing field replaces the options
+// while it is open (same slot count either way — no reflow).
+fn answer_rows(m: &AssistantMsg, w: usize) -> Vec<Line> {
+    match m.input {
+        Some(buf) => {
+            let mut rows = vec![input_row(buf, w)];
+            while rows.len() < OPTION_ROWS {
+                rows.push(Vec::new());
+            }
+            rows
+        }
+        None => option_rows(&option_labels(m.options.unwrap_or_default(), m.input_ok), w),
+    }
+}
+
+// The choices as shown: the fixed options plus, when free text is accepted,
+// one more numbered entry for it — the "Other" of the harness prompts. It
+// only fits while there is a key left (1-9).
+pub fn option_labels(options: &[String], input_ok: bool) -> Vec<String> {
+    let mut labels: Vec<String> = options.iter().take(9).cloned().collect();
+    if input_ok && labels.len() < 9 {
+        labels.push(i18n::OPTION_WRITE.to_string());
+    }
+    labels
 }
 
 // One option per row in OPTION_ROWS fixed slots (blank-padded, so option
@@ -1130,7 +1169,7 @@ fn bubble_panel(msg: Option<&AssistantMsg>, clock_text: &str, w: usize) -> Vec<L
     }
     body.push(meta);
     match m.options {
-        Some(options) => body.extend(option_rows(options, inner)),
+        Some(_) => body.extend(answer_rows(m, inner)),
         None => body.extend((0..OPTION_ROWS).map(|_| Line::new())),
     }
 
@@ -1153,8 +1192,11 @@ pub fn draw_assistant(
 ) -> io::Result<()> {
     let (cols, rows) = terminal::size()?;
     let (iw, ih) = (cols.saturating_sub(2) as usize, rows.saturating_sub(2) as usize);
-    let footers: &[&str] =
-        if msg.is_some_and(|m| m.options.is_some()) { &i18n::FOOTER_ASK } else { &i18n::FOOTER_ASSISTANT };
+    let footers: &[&str] = match msg {
+        Some(m) if m.input.is_some() => &i18n::FOOTER_INPUT,
+        Some(m) if m.options.is_some() => &i18n::FOOTER_ASK,
+        _ => &i18n::FOOTER_ASSISTANT,
+    };
     let content = build_assistant(pet, frame, msg, queue_preview, queue_len, view, iw, ih);
     draw_screen(out, &content, footers)
 }
@@ -1241,7 +1283,7 @@ pub fn build_assistant(
                 while body.len() < 3 {
                     body.push(Vec::new());
                 }
-                body.extend(option_rows(m.options.unwrap_or_default(), inner));
+                body.extend(answer_rows(m, inner));
             }
             Some(m) => {
                 body.extend(wrapped_text(m.text, inner, 3));
@@ -1303,8 +1345,8 @@ pub fn build_assistant(
             let opt_rows = if m.options.is_some() { OPTION_ROWS.min(avail.saturating_sub(2)) } else { 0 };
             let text_rows = (avail - 1 - opt_rows).clamp(1, 3);
             rows.extend(wrapped_text(m.text, width, text_rows));
-            if let Some(options) = m.options {
-                rows.extend(option_rows(options, width).into_iter().take(opt_rows.max(1)));
+            if m.options.is_some() {
+                rows.extend(answer_rows(m, width).into_iter().take(opt_rows.max(1)));
             }
         } else {
             rows.push(tinted(i18n::NO_MESSAGES, Color::DarkGrey));
@@ -1371,7 +1413,76 @@ mod tests {
     }
 
     fn sample_ask<'a>(text: &'a str, options: &'a [String], expires_in: Option<u64>) -> AssistantMsg<'a> {
-        AssistantMsg { text, from: "claude", kind: Kind::Info, kind_label: "info", options: Some(options), expires_in }
+        AssistantMsg {
+            text,
+            from: "claude",
+            kind: Kind::Info,
+            kind_label: "info",
+            options: Some(options),
+            expires_in,
+            input: None,
+            input_ok: false,
+        }
+    }
+
+    #[test]
+    fn free_text_is_listed_as_the_last_numbered_option() {
+        let opts: Vec<String> = vec!["a".into(), "b".into()];
+        assert_eq!(option_labels(&opts, false), opts);
+        let with = option_labels(&opts, true);
+        assert_eq!(with.len(), 3);
+        assert_eq!(with[2], i18n::OPTION_WRITE);
+        // no free key left (9 options) → no extra entry, `t` still opens it
+        let nine: Vec<String> = (0..9).map(|i| i.to_string()).collect();
+        assert_eq!(option_labels(&nine, true).len(), 9);
+        // it renders in the card
+        let pet = named_pet();
+        let mut m = sample_ask("qual?", &opts, None);
+        m.input_ok = true;
+        let c = build_assistant(&pet, 0, Some(&m), &[], 0, &view_of(&EMPTY_LOG), 96, 24);
+        let text: String = c.iter().flat_map(|l| l.iter().map(|(s, ..)| s.clone())).collect();
+        assert!(text.contains(i18n::OPTION_WRITE), "extra option missing: {text}");
+    }
+
+    #[test]
+    fn input_row_keeps_the_caret_visible_as_text_grows() {
+        let short = input_row("oi", 20);
+        assert_eq!(short.iter().map(|(s, ..)| s.clone()).collect::<String>(), "> oi_");
+        // longer than the field: tail is shown, caret still last
+        let long = input_row(&"a".repeat(50), 20);
+        let text: String = long.iter().map(|(s, ..)| s.clone()).collect();
+        assert!(text.starts_with("> ") && text.ends_with('_'));
+        assert_eq!(text.chars().count(), 20);
+    }
+
+    #[test]
+    fn typing_replaces_the_options_without_resizing_the_card() {
+        let pet = named_pet();
+        let options: Vec<String> = vec!["sim".into(), "não".into()];
+        for (iw, ih) in [(96, 24), (80, 18), (50, 16), (26, 8)] {
+            let idle = sample_ask("responde?", &options, None);
+            let mut typing = sample_ask("responde?", &options, None);
+            typing.input = Some("uma resposta escrita");
+            let a = build_assistant(&pet, 0, Some(&idle), &[], 0, &view_of(&EMPTY_LOG), iw, ih);
+            let b = build_assistant(&pet, 0, Some(&typing), &[], 0, &view_of(&EMPTY_LOG), iw, ih);
+            assert_eq!(a.len(), b.len(), "card resized while typing at {iw}x{ih}");
+            let text: String = b.iter().flat_map(|l| l.iter().map(|(s, ..)| s.clone())).collect();
+            assert!(text.contains("resposta escrita"), "typed text missing at {iw}x{ih}");
+        }
+    }
+
+    #[test]
+    fn text_only_ask_has_no_options_but_still_fits() {
+        let pet = named_pet();
+        let empty: Vec<String> = Vec::new();
+        let mut m = sample_ask("o que você acha?", &empty, Some(30));
+        m.input = Some("porque sim");
+        for (iw, ih) in [(96, 24), (60, 12), (26, 8)] {
+            let c = build_assistant(&pet, 0, Some(&m), &[], 0, &view_of(&EMPTY_LOG), iw, ih);
+            assert!(c.len() <= ih.saturating_sub(1).max(1), "overflow at {iw}x{ih}");
+            let text: String = c.iter().flat_map(|l| l.iter().map(|(s, ..)| s.clone())).collect();
+            assert!(text.contains("porque sim"), "typed text missing at {iw}x{ih}");
+        }
     }
 
     #[test]
@@ -1397,6 +1508,8 @@ mod tests {
                         kind_label: "sucesso",
                         options: None,
                         expires_in: None,
+                        input: None,
+                        input_ok: false,
                     }),
                 ] {
                     let c = build_assistant(&pet, 0, msg.as_ref(), &queue, 1, &view_of(&EMPTY_LOG), iw, ih);

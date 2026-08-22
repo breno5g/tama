@@ -2,7 +2,8 @@
 # Hook PreToolUse (matcher AskUserQuestion) do Claude Code: as perguntas de
 # múltipla escolha do Claude aparecem no tama e a escolha volta como
 # deny+reason — o Claude lê o reason como a resposta do usuário e segue.
-# multiSelect vira escolha única (limitação aceita).
+# Além das opções, `t` no tama escreve uma resposta livre (--input), que é o
+# equivalente ao "Other" do harness. multiSelect vira escolha única.
 #
 # Requer jq (as opções vêm em arrays aninhados). Sem jq, timeout, esc ou
 # "responder no claude": nenhum output -> a pergunta aparece no harness.
@@ -26,7 +27,7 @@ while [ "$i" -lt "$n" ]; do
         while IFS= read -r label; do
             set -- "$@" --options "$label"
         done
-        $TAMA_CMD ask "$q" "$@" --options "$FALLBACK" \
+        $TAMA_CMD ask "$q" "$@" --options "$FALLBACK" --input \
             --from claude --timeout 120s --default "$FALLBACK"
     })
     case "$ans" in

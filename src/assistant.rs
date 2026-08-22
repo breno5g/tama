@@ -40,7 +40,8 @@ impl Kind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Msg {
     Say { text: String, from: String, kind: Kind },
-    Ask { text: String, options: Vec<String>, id: String, from: String, expires: Option<u64> },
+    // `input`: a typed answer is accepted — shown as one more numbered option
+    Ask { text: String, options: Vec<String>, id: String, from: String, expires: Option<u64>, input: bool },
     Action(String),
     Progress { from: String, pct: u8 },
     Reminder { text: String, at: u64 },
@@ -170,9 +171,13 @@ fn parse_line(line: &str, now: u64) -> Option<Msg> {
 fn msg_from_fields(fields: &[(String, String)], now: u64) -> Option<Msg> {
     let from = get(fields, "from").unwrap_or_default();
     if let Some(text) = get(fields, "message") {
-        // `actions` turns a message into a question; without it, plain speech
-        if let Some(actions) = get(fields, "actions") {
+        // `actions` or `input` turns a message into a question; alone, speech.
+        // Every ask also accepts a typed answer; empty options = text-only.
+        let actions = get(fields, "actions");
+        let input = get(fields, "input").as_deref() == Some("true");
+        if actions.is_some() || input {
             let options: Vec<String> = actions
+                .unwrap_or_default()
                 .split('\n')
                 .map(|o| o.trim().to_string())
                 .filter(|o| !o.is_empty())
@@ -181,10 +186,11 @@ fn msg_from_fields(fields: &[(String, String)], now: u64) -> Option<Msg> {
             let expires = get(fields, "expires").and_then(|e| e.parse().ok());
             return Some(Msg::Ask {
                 text,
-                options: if options.is_empty() { vec!["sim".into(), "não".into()] } else { options },
+                options: if options.is_empty() && !input { vec!["sim".into(), "não".into()] } else { options },
                 id,
                 from,
                 expires,
+                input,
             });
         }
         return Some(Msg::Say { text, from, kind: Kind::from_id(&get(fields, "type").unwrap_or_default()) });
@@ -324,7 +330,8 @@ mod tests {
                 options: vec!["sim".into(), "não".into()],
                 id: "rel-1".into(),
                 from: String::new(),
-                expires: None
+                expires: None,
+                input: false
             })
         );
         assert_eq!(
@@ -341,6 +348,31 @@ mod tests {
             Some(Msg::Pomodoro { work: 1500, rest: 300 })
         );
         assert_eq!(parse_line(r#"{"pomodoro":"off"}"#, now), Some(Msg::PomodoroOff));
+    }
+
+    #[test]
+    fn input_true_makes_a_text_only_ask_and_coexists_with_actions() {
+        // input alone: an Ask with NO options (text-only)
+        let Some(Msg::Ask { options, input, .. }) = parse_line(r#"{"message":"como faço?","input":true}"#, 0)
+        else {
+            panic!("expected Ask");
+        };
+        assert!(options.is_empty());
+        assert!(input);
+        // input + actions: options preserved, typing is one more choice
+        let Some(Msg::Ask { options, input, .. }) =
+            parse_line(r#"{"message":"qual?","actions":["a","b"],"input":true}"#, 0)
+        else {
+            panic!("expected Ask");
+        };
+        assert_eq!(options, vec!["a".to_string(), "b".to_string()]);
+        assert!(input);
+        // without input, empty actions still fall back to the defaults
+        let Some(Msg::Ask { options, input, .. }) = parse_line(r#"{"message":"ok?","actions":""}"#, 0) else {
+            panic!("expected Ask");
+        };
+        assert_eq!(options.len(), 2);
+        assert!(!input);
     }
 
     #[test]

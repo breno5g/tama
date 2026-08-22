@@ -14,6 +14,7 @@ use crate::ui::{self, draw_screen, plain, seg, tinted, Clock, HomeView, Line};
 
 const LOG_CAP: usize = 12;
 const SAY_SECS: u64 = 8;
+const ANSWER_CAP: usize = 200; // typed answer: long enough for prose, bounded
 
 #[derive(Clone, Copy)]
 enum Screen {
@@ -229,6 +230,17 @@ impl Inbox {
     }
 }
 
+// Answers the current question — by picked option or typed text, same path.
+fn answer_ask(inbox: &mut Inbox, log: &mut VecDeque<Line>, time: &str, answer: &str) {
+    let Some((Msg::Ask { text, id, .. }, _)) = &inbox.current else { return };
+    let entry = i18n::msg_answered(text, answer);
+    match assistant::write_answer(id, answer) {
+        Ok(()) => push_log(log, time, entry, None),
+        Err(e) => push_line(log, tinted(format!("{entry} ({e})"), Color::Red)),
+    }
+    inbox.current = None;
+}
+
 fn do_play(pet: &mut Pet, log: &mut VecDeque<Line>, time: &str) -> io::Result<()> {
     let leveled = pet.play();
     push_log(log, time, i18n::msg_played(&pet.name), Some(("(+10 xp)".into(), Color::Cyan)));
@@ -392,6 +404,8 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
     let mut screen = Screen::Home;
     // where an Ask yanked the user from; restored when the inbox drains
     let mut prev_screen = Screen::Home;
+    // typed-answer buffer: Some = the current ask is being answered by text
+    let mut input: Option<String> = None;
     let mut frame = 0usize;
     let mut ticks_250ms = 0u64;
     let mut prev_mood = pet.mood();
@@ -538,6 +552,16 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                 }
             }
             inbox.promote();
+            // the typing field follows the current ask: text-only asks (no
+            // options) open it by themselves; it dies with the ask
+            match &inbox.current {
+                Some((Msg::Ask { options, .. }, _)) => {
+                    if options.is_empty() && input.is_none() {
+                        input = Some(String::new());
+                    }
+                }
+                _ => input = None,
+            }
             if inbox.is_empty() {
                 screen = prev_screen;
                 prev_screen = Screen::Home;
@@ -591,14 +615,18 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                         kind_label: i18n::kind_label(*kind),
                         options: None,
                         expires_in: None,
+                        input: None,
+                        input_ok: false,
                     }),
-                    Msg::Ask { text, from, options, expires, .. } => Some(ui::AssistantMsg {
+                    Msg::Ask { text, from, options, expires, input: input_ok, .. } => Some(ui::AssistantMsg {
                         text,
                         from,
                         kind: Kind::Info,
                         kind_label: i18n::kind_label(Kind::Info),
                         options: Some(options),
                         expires_in: expires.map(|e| e.saturating_sub(now)),
+                        input: input.as_deref(),
+                        input_ok: *input_ok,
                     }),
                     _ => None,
                 });
@@ -748,6 +776,32 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                         // stay here: this screen IS the focus mode
                     }
                 }
+                // Typing a free-text answer: every key belongs to the field
+                // (that is why it is matched before the shortcut table).
+                Screen::Assistant if input.is_some() => {
+                    let buf = input.as_mut().unwrap();
+                    match k.code {
+                        KeyCode::Enter if !buf.trim().is_empty() => {
+                            let answer = buf.trim().to_string();
+                            answer_ask(&mut inbox, &mut log, &time, &answer);
+                            input = None;
+                        }
+                        KeyCode::Backspace => {
+                            buf.pop();
+                        }
+                        // esc leaves the field; on a text-only ask there is
+                        // nothing to go back to, so it discards the question
+                        KeyCode::Esc => {
+                            let text_only = matches!(&inbox.current, Some((Msg::Ask { options, .. }, _)) if options.is_empty());
+                            input = None;
+                            if text_only {
+                                inbox.advance();
+                            }
+                        }
+                        KeyCode::Char(c) if buf.chars().count() < ANSWER_CAP => buf.push(c),
+                        _ => {}
+                    }
+                }
                 Screen::Assistant => match k.code {
                     KeyCode::Char('q') => {
                         inbox.clear();
@@ -762,6 +816,10 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                         screen = prev_screen;
                         prev_screen = Screen::Home;
                     }
+                    // shortcut for the same "escrever" entry listed below
+                    KeyCode::Char('t') if matches!(inbox.current, Some((Msg::Ask { input: true, .. }, _))) => {
+                        input = Some(String::new());
+                    }
                     KeyCode::Enter => {
                         if matches!(inbox.current, Some((Msg::Say { .. }, _))) {
                             inbox.current = None;
@@ -770,17 +828,20 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                     KeyCode::Esc => {
                         inbox.advance();
                     }
+                    // The numbered list is options + (when free text is
+                    // accepted) one last "escrever" entry, which opens the
+                    // field instead of answering.
                     KeyCode::Char(c @ '1'..='9') => {
-                        if let Some((Msg::Ask { text, options, id, .. }, _)) = &inbox.current {
-                            if let Some(option) = options.get(c as usize - '1' as usize) {
-                                let result = assistant::write_answer(id, option);
-                                let entry = i18n::msg_answered(text, option);
-                                match result {
-                                    Ok(()) => push_log(&mut log, &time, entry, None),
-                                    Err(e) => push_line(&mut log, tinted(format!("{entry} ({e})"), Color::Red)),
-                                }
-                                inbox.current = None;
+                        let picked = match &inbox.current {
+                            Some((Msg::Ask { options, input: input_ok, .. }, _)) => {
+                                ui::option_labels(options, *input_ok).get(c as usize - '1' as usize).cloned()
                             }
+                            _ => None,
+                        };
+                        match picked {
+                            Some(o) if o == i18n::OPTION_WRITE => input = Some(String::new()),
+                            Some(option) => answer_ask(&mut inbox, &mut log, &time, &option),
+                            None => {}
                         }
                     }
                     _ => {}
@@ -918,6 +979,7 @@ mod tests {
             id: "i".into(),
             from: String::new(),
             expires: None,
+            input: false,
         });
         inbox.promote();
         assert!(matches!(inbox.current, Some((Msg::Ask { .. }, _))));
@@ -931,6 +993,7 @@ mod tests {
             id: id.into(),
             from: from.into(),
             expires,
+            input: false,
         };
         let mut inbox = Inbox::new();
         inbox.queue.push_back(ask("a", "claude", Some(100)));

@@ -51,10 +51,15 @@ fn flags(rest: &[String], name: &str) -> Vec<String> {
     out
 }
 
+// Flags that carry no value — skipping two args past them would eat the text.
+const BOOL_FLAGS: [&str; 1] = ["--input"];
+
 fn positional(rest: &[String]) -> Option<String> {
     let mut i = 0;
     while i < rest.len() {
-        if rest[i].starts_with("--") {
+        if BOOL_FLAGS.contains(&rest[i].as_str()) {
+            i += 1;
+        } else if rest[i].starts_with("--") {
             i += 2;
         } else {
             return Some(rest[i].clone());
@@ -106,7 +111,10 @@ fn ask_options(opts: &[String]) -> String {
 
 fn ask(rest: &[String]) -> i32 {
     let Some(text) = positional(rest) else { return usage(i18n::CLI_USAGE_ASK) };
-    let options = ask_options(&flags(rest, "--options"));
+    // --input: free text is a valid answer; alone, the only one
+    let typed = rest.iter().any(|a| a == "--input");
+    let picks = flags(rest, "--options");
+    let options = if typed && picks.is_empty() { String::new() } else { ask_options(&picks) };
     let from = flag(rest, "--from").unwrap_or_default();
     let id = flag(rest, "--id").unwrap_or_else(|| {
         format!("ask-{}-{}", now_epoch(), std::process::id())
@@ -119,11 +127,12 @@ fn ask(rest: &[String]) -> i32 {
         None => None,
     };
     let expires = deadline.map(|d| format!(",\"expires\":{d}")).unwrap_or_default();
+    let input = if typed { ",\"input\":true" } else { "" };
     // Answers appended before we send can't be ours: remember the file length
     // (always a line boundary) and scan only past it.
     let offset = fs::metadata(output_path()).map(|m| m.len() as usize).unwrap_or(0);
     let code = send(format!(
-        "{{\"message\":\"{}\",\"actions\":\"{}\",\"id\":\"{}\",\"from\":\"{}\"{expires}}}\n",
+        "{{\"message\":\"{}\",\"actions\":\"{}\",\"id\":\"{}\",\"from\":\"{}\"{expires}{input}}}\n",
         json_escape(&text),
         json_escape(&options),
         json_escape(&id),
@@ -245,6 +254,13 @@ mod tests {
         assert_eq!(flag(&rest, "--from"), Some("ci".to_string()));
         assert_eq!(flag(&rest, "--type"), Some("success".to_string()));
         assert_eq!(flag(&rest, "--in"), None);
+    }
+
+    #[test]
+    fn valueless_flags_do_not_swallow_the_text() {
+        let rest = v(&["--input", "escreva aí", "--from", "llm"]);
+        assert_eq!(positional(&rest), Some("escreva aí".to_string()));
+        assert_eq!(flag(&rest, "--from"), Some("llm".to_string()));
     }
 
     #[test]

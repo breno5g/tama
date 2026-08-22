@@ -116,7 +116,14 @@ pub const FOOTER_ASSISTANT: [&str; 3] = [
     "enter:próxima x:limpar a:pet q:sair",
     "enter x a q",
 ];
-pub const FOOTER_ASK: [&str; 2] = ["[1-9] responder  [esc] ignorar  [a] modo pet", "1-9 esc a"];
+pub const FOOTER_ASK: [&str; 3] = [
+    "[1-9] responder  [t] escrever  [esc] ignorar  [a] modo pet",
+    "1-9 responder  t escrever  esc",
+    "1-9 t esc a",
+];
+pub const FOOTER_INPUT: [&str; 2] = ["digite a resposta  [enter] enviar  [esc] cancelar", "enter esc"];
+// Última opção quando a pergunta aceita texto livre — o "Other" dos prompts
+pub const OPTION_WRITE: &str = "outra (escrever)";
 pub const ASSISTANT_TAG: &str = "modo assistente";
 pub const PANEL_QUEUE: &str = "fila";
 pub const NO_MESSAGES: &str = "sem mensagens — esperando programas...";
@@ -192,7 +199,7 @@ pub const CLI_NOT_RUNNING: &str = "tama não está rodando — abra o app primei
 pub const CLI_PIPE_ERROR: &str = "não consegui escrever no pipe do tama";
 pub const CLI_USAGE_SAY: &str = "uso: tama say \"texto\" [--from origem] [--type info|success|warn|error]";
 pub const CLI_USAGE_ASK: &str =
-    "uso: tama ask \"pergunta\" [--options a,b,c | --options a --options b ...] [--from origem] [--id id] [--timeout 60s] [--default resposta]";
+    "uso: tama ask \"pergunta\" [--options a,b,c | --options a --options b ...] [--input] [--from origem] [--id id] [--timeout 60s] [--default resposta]";
 pub const CLI_ASK_TIMEOUT: &str = "sem resposta do tama (timeout)";
 pub const CLI_USAGE_REMIND: &str = "uso: tama remind \"texto\" --in 10m";
 pub const CLI_USAGE_TIMER: &str = "uso: tama timer 25m";
