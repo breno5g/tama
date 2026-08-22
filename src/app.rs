@@ -21,6 +21,7 @@ enum Screen {
     Menu(usize),
     Game,
     Assistant,
+    Pomo(usize),
 }
 
 // Index-aligned with i18n::ACTION_LABELS and ui::ACTION_GLYPHS.
@@ -32,13 +33,26 @@ enum Action {
     Bath,
     Game,
     Assistant,
+    Pomo,
     Zen,
     Switch,
 }
 
-const ACTIONS_ALL: [Action; 8] =
-    [Action::Feed, Action::Play, Action::Sleep, Action::Bath, Action::Game, Action::Assistant, Action::Zen, Action::Switch];
-const ACTIONS_ZEN: [Action; 3] = [Action::Assistant, Action::Zen, Action::Switch];
+const ACTIONS_ALL: [Action; 9] = [
+    Action::Feed,
+    Action::Play,
+    Action::Sleep,
+    Action::Bath,
+    Action::Game,
+    Action::Assistant,
+    Action::Pomo,
+    Action::Zen,
+    Action::Switch,
+];
+const ACTIONS_ZEN: [Action; 4] = [Action::Assistant, Action::Pomo, Action::Zen, Action::Switch];
+
+// Index-aligned with i18n::POMO_PRESET_LABELS: (focus, break) in seconds.
+const POMO_PRESETS: [(u64, u64); 3] = [(25 * 60, 5 * 60), (50 * 60, 10 * 60), (15 * 60, 3 * 60)];
 
 fn actions_for(zen: bool) -> &'static [Action] {
     if zen { &ACTIONS_ZEN } else { &ACTIONS_ALL }
@@ -106,6 +120,43 @@ fn due_reminders(reminders: &mut Vec<(String, u64)>, now: u64) -> Vec<String> {
     let fired = reminders.iter().filter(|(_, at)| *at <= now).map(|(t, _)| t.clone()).collect();
     reminders.retain(|(_, at)| *at > now);
     fired
+}
+
+// A running pomodoro: alternates focus/break phases until stopped.
+struct Pomo {
+    work: u64,
+    rest: u64,
+    focus: bool,
+    until: u64,
+    cycles: u32, // 1-based: which focus block we are on
+}
+
+// Flips the phase when the current one ended; returns the phase just entered
+// (true = focus).
+fn pomo_tick(p: &mut Pomo, now: u64) -> Option<bool> {
+    if p.until > now {
+        return None;
+    }
+    p.focus = !p.focus;
+    p.until = now + if p.focus { p.work } else { p.rest };
+    if p.focus {
+        p.cycles += 1;
+    }
+    Some(p.focus)
+}
+
+// Updates the per-source progress list in place, keeping display order stable;
+// true when the task hit 100% and was removed.
+fn update_progress(progress: &mut Vec<(String, u8)>, from: &str, pct: u8) -> bool {
+    if pct >= 100 {
+        progress.retain(|(f, _)| f != from);
+        return true;
+    }
+    match progress.iter_mut().find(|(f, _)| f == from) {
+        Some(entry) => entry.1 = pct,
+        None => progress.push((from.to_string(), pct)),
+    }
+    false
 }
 
 fn queue_preview(m: &Msg) -> Option<String> {
@@ -304,9 +355,10 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
 
     let rx = assistant::spawn_reader();
     let mut inbox = Inbox::new();
-    let mut progress: Option<(String, u8)> = None;
+    let mut progress: Vec<(String, u8)> = Vec::new();
     let mut reminders: Vec<(String, u64)> = Vec::new();
     let mut timer_until: Option<u64> = None;
+    let mut pomo: Option<Pomo> = None;
 
     let mut screen = Screen::Home;
     let mut frame = 0usize;
@@ -372,15 +424,27 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                     }
                 }
                 Msg::Progress { from, pct } => {
-                    if pct >= 100 {
+                    if update_progress(&mut progress, &from, pct) {
                         push_log(&mut log, &time, i18n::msg_progress_done(&from), Some(("(100%)".into(), Color::Green)));
-                        progress = None;
-                    } else {
-                        progress = Some((from, pct));
                     }
                 }
                 Msg::Reminder { text, at } => reminders.push((text, at)),
                 Msg::Timer { until } => timer_until = Some(until),
+                Msg::Pomodoro { work, rest } => {
+                    pomo = Some(Pomo { work, rest, focus: true, until: now + work, cycles: 1 });
+                    pet.sleeping = false;
+                    push_log(&mut log, &time, i18n::MSG_POMO_START.into(), None);
+                    // a starting pomodoro opens its screen, like messages do
+                    if matches!(screen, Screen::Home) {
+                        screen = Screen::Pomo(0);
+                    }
+                }
+                Msg::PomodoroOff => {
+                    if pomo.take().is_some() {
+                        pet.sleeping = false;
+                        push_log(&mut log, &time, i18n::MSG_POMO_STOPPED.into(), None);
+                    }
+                }
             }
         }
 
@@ -397,6 +461,32 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
             if matches!(screen, Screen::Home) {
                 screen = Screen::Assistant;
             }
+        }
+        if let Some(p) = &mut pomo {
+            if let Some(focus) = pomo_tick(p, now) {
+                pet.sleeping = !focus; // the pet rests with you on breaks
+                let text = if focus { i18n::MSG_POMO_FOCUS } else { i18n::MSG_POMO_BREAK };
+                if matches!(screen, Screen::Pomo(_)) {
+                    // the screen itself shows the change (title, color, pet);
+                    // just keep the record in the log
+                    push_log(&mut log, &time, text.into(), None);
+                } else {
+                    inbox.queue.push_back(Msg::Say {
+                        text: text.into(),
+                        from: i18n::POMO_FROM.into(),
+                        kind: if focus { Kind::Success } else { Kind::Warn },
+                    });
+                    if matches!(screen, Screen::Home) {
+                        screen = Screen::Assistant;
+                    }
+                }
+            }
+        }
+
+        // A pomodoro break IS nap time: overrides the full-energy auto-wake
+        // so the pet keeps napping until the break actually ends.
+        if pomo.as_ref().is_some_and(|p| !p.focus) {
+            pet.sleeping = true;
         }
 
         // A spoken message expires on its own; questions wait for an answer.
@@ -416,8 +506,12 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
             log: &log,
             clock_text: &time,
             hour,
-            timer: timer_until.map(|u| mmss(u.saturating_sub(now))),
-            progress: progress.as_ref().map(|(from, pct)| ui::progress_line(from, *pct)),
+            // an active pomodoro owns the header slot; a plain timer otherwise
+            timer: pomo
+                .as_ref()
+                .map(|p| (if p.focus { i18n::POMO_FOCUS } else { i18n::POMO_BREAK }, mmss(p.until.saturating_sub(now))))
+                .or_else(|| timer_until.map(|u| (i18n::TIMER_LABEL, mmss(u.saturating_sub(now))))),
+            progress: progress.iter().map(|(from, pct)| ui::progress_line(from, *pct)).collect(),
         };
         match &screen {
             Screen::Home => ui::draw_home(out, pet, frame, &view)?,
@@ -427,6 +521,24 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
             }
             Screen::Menu(sel) => ui::draw_menu(out, pet, frame, &view, *sel)?,
             Screen::Game => ui::draw_game(out, pet, frame, &view)?,
+            Screen::Pomo(sel) => {
+                let run = pomo.as_ref().map(|p| {
+                    let duration = if p.focus { p.work } else { p.rest }.max(1);
+                    let remaining = p.until.saturating_sub(now).min(duration);
+                    ui::PomoRun {
+                        label: if p.focus { i18n::POMO_FOCUS } else { i18n::POMO_BREAK },
+                        focus: p.focus,
+                        frac: (100 - remaining * 100 / duration) as u8,
+                        cycle: p.cycles,
+                    }
+                });
+                // idle: the clock previews the selected preset's focus length
+                let clock = match &pomo {
+                    Some(p) => mmss(p.until.saturating_sub(now)),
+                    None => mmss(POMO_PRESETS[*sel].0),
+                };
+                ui::draw_pomo(out, pet, frame, &view, &clock, run.as_ref(), *sel)?;
+            }
             Screen::Assistant => {
                 let current = inbox.current.as_ref().map(|(m, _)| m);
                 let msg = current.and_then(|m| match m {
@@ -499,6 +611,7 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                             Action::Feed => screen = Screen::Menu(0),
                             Action::Game => screen = Screen::Game,
                             Action::Assistant => screen = Screen::Assistant,
+                            Action::Pomo => screen = Screen::Pomo(0),
                             Action::Play => do_play(pet, &mut log, &time)?,
                             Action::Sleep => do_sleep(pet, &mut log, &time),
                             Action::Bath => do_bath(pet, &mut log, &time)?,
@@ -556,6 +669,41 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                     }
                     _ => {}
                 },
+                Screen::Pomo(sel) => {
+                    let start = match k.code {
+                        KeyCode::Esc | KeyCode::Char('q') => {
+                            screen = Screen::Home;
+                            None
+                        }
+                        KeyCode::Up | KeyCode::Char('k') if pomo.is_none() => {
+                            screen = Screen::Pomo((sel + POMO_PRESETS.len() - 1) % POMO_PRESETS.len());
+                            None
+                        }
+                        KeyCode::Down | KeyCode::Char('j') if pomo.is_none() => {
+                            screen = Screen::Pomo((sel + 1) % POMO_PRESETS.len());
+                            None
+                        }
+                        // enter starts the selected preset — or stops the running cycle
+                        KeyCode::Enter => match pomo.take() {
+                            Some(_) => {
+                                pet.sleeping = false;
+                                push_log(&mut log, &time, i18n::MSG_POMO_STOPPED.into(), None);
+                                None
+                            }
+                            None => POMO_PRESETS.get(sel).copied(),
+                        },
+                        KeyCode::Char(c @ '1'..='9') if pomo.is_none() => {
+                            POMO_PRESETS.get(c as usize - '1' as usize).copied()
+                        }
+                        _ => None,
+                    };
+                    if let Some((work, rest)) = start {
+                        pomo = Some(Pomo { work, rest, focus: true, until: now + work, cycles: 1 });
+                        pet.sleeping = false;
+                        push_log(&mut log, &time, i18n::MSG_POMO_START.into(), None);
+                        // stay here: this screen IS the focus mode
+                    }
+                }
                 Screen::Assistant => match k.code {
                     KeyCode::Char('q') => {
                         inbox.clear();
@@ -673,6 +821,7 @@ mod tests {
         for a in ACTIONS_ZEN {
             assert!(ACTIONS_ALL.contains(&a));
         }
+        assert_eq!(POMO_PRESETS.len(), crate::i18n::POMO_PRESET_LABELS.len());
     }
 
     #[test]
@@ -680,6 +829,27 @@ mod tests {
         assert_eq!(mmss(0), "00:00");
         assert_eq!(mmss(1062), "17:42");
         assert_eq!(mmss(3661), "1:01:01");
+    }
+
+    #[test]
+    fn pomo_tick_alternates_phases_with_their_own_durations() {
+        let mut p = Pomo { work: 1500, rest: 300, focus: true, until: 100, cycles: 1 };
+        assert_eq!(pomo_tick(&mut p, 50), None); // still running
+        assert_eq!(pomo_tick(&mut p, 100), Some(false)); // break starts
+        assert_eq!((p.until, p.cycles), (400, 1));
+        assert_eq!(pomo_tick(&mut p, 400), Some(true)); // focus resumes
+        assert_eq!((p.until, p.cycles), (1900, 2));
+    }
+
+    #[test]
+    fn update_progress_tracks_sources_independently() {
+        let mut progress = Vec::new();
+        assert!(!update_progress(&mut progress, "build", 10));
+        assert!(!update_progress(&mut progress, "deploy", 50));
+        assert!(!update_progress(&mut progress, "build", 90)); // updates in place
+        assert_eq!(progress, vec![("build".to_string(), 90), ("deploy".to_string(), 50)]);
+        assert!(update_progress(&mut progress, "build", 100)); // done → removed
+        assert_eq!(progress, vec![("deploy".to_string(), 50)]);
     }
 
     #[test]

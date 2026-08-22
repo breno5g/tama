@@ -37,6 +37,8 @@ pub enum Msg {
     Progress { from: String, pct: u8 },
     Reminder { text: String, at: u64 },
     Timer { until: u64 },
+    Pomodoro { work: u64, rest: u64 },
+    PomodoroOff,
 }
 
 // Splits a flat JSON object into (key, value) pairs. Quote-aware, handles
@@ -144,6 +146,13 @@ pub fn parse_line(line: &str, now: u64) -> Option<Msg> {
     if let Some(t) = get("timer") {
         return Some(Msg::Timer { until: now + parse_duration(&t)? });
     }
+    if let Some(p) = get("pomodoro") {
+        if p == "off" || p == "parar" {
+            return Some(Msg::PomodoroOff);
+        }
+        let rest = get("pausa").map_or(Some(300), |s| parse_duration(&s))?;
+        return Some(Msg::Pomodoro { work: parse_duration(&p)?, rest });
+    }
     None
 }
 
@@ -232,6 +241,19 @@ mod tests {
             Some(Msg::Reminder { text: "standup".into(), at: now + 600 })
         );
         assert_eq!(parse_line(r#"{"timer":"25m"}"#, now), Some(Msg::Timer { until: now + 1500 }));
+        assert_eq!(
+            parse_line(r#"{"pomodoro":"25m","pausa":"5m"}"#, now),
+            Some(Msg::Pomodoro { work: 1500, rest: 300 })
+        );
+        assert_eq!(parse_line(r#"{"pomodoro":"off"}"#, now), Some(Msg::PomodoroOff));
+        assert_eq!(parse_line(r#"{"pomodoro":"parar"}"#, now), Some(Msg::PomodoroOff));
+    }
+
+    #[test]
+    fn pomodoro_defaults_break_to_5m_and_rejects_bad_durations() {
+        assert_eq!(parse_line(r#"{"pomodoro":"25m"}"#, 0), Some(Msg::Pomodoro { work: 1500, rest: 300 }));
+        assert!(parse_line(r#"{"pomodoro":"abc"}"#, 0).is_none());
+        assert!(parse_line(r#"{"pomodoro":"25m","pausa":"abc"}"#, 0).is_none());
     }
 
     #[test]

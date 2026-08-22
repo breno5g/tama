@@ -282,19 +282,16 @@ pub struct HomeView<'a> {
     pub log: &'a VecDeque<Line>,
     pub clock_text: &'a str,
     pub hour: u8,
-    pub timer: Option<String>,
-    pub progress: Option<Line>,
+    pub timer: Option<(&'static str, String)>, // label ("timer"/"foco"/"pausa"), countdown
+    pub progress: Vec<Line>,
 }
 
 // Design: dimmed label, only the countdown in yellow.
 fn timer_segs(view: &HomeView) -> Line {
     view.timer
         .as_ref()
-        .map(|t| {
-            vec![
-                seg(format!("{} ", i18n::TIMER_LABEL), Some(Color::DarkGrey)),
-                seg(t.clone(), Some(Color::Yellow)),
-            ]
+        .map(|(label, t)| {
+            vec![seg(format!("{label} "), Some(Color::DarkGrey)), seg(t.clone(), Some(Color::Yellow))]
         })
         .unwrap_or_default()
 }
@@ -500,10 +497,7 @@ fn build_panels(
     if event_rows > 0 {
         // Fixed capacity: the panel is always exactly `event_rows` tall,
         // padded with blank rows — new events must never resize the layout.
-        let mut events: Vec<Line> = Vec::new();
-        if let Some(p) = &view.progress {
-            events.push(p.clone());
-        }
+        let mut events: Vec<Line> = view.progress.iter().take(event_rows).cloned().collect();
         events.extend(view.log.iter().rev().take(event_rows.saturating_sub(events.len())).cloned());
         if events.is_empty() {
             events.push(tinted(i18n::LOG_EMPTY, Color::DarkGrey));
@@ -514,7 +508,7 @@ fn build_panels(
         content.extend(panel(i18n::PANEL_EVENTS, &events, w));
     } else {
         // Ticker row is reserved even before the first event, same reason.
-        let ticker = view.progress.clone().or_else(|| view.log.back().cloned());
+        let ticker = view.progress.first().cloned().or_else(|| view.log.back().cloned());
         content.push(ticker.map(|l| clip_pad(&l, w)).unwrap_or_default());
     }
     content
@@ -526,7 +520,7 @@ fn build_stacked(pet: &Pet, frame: usize, view: &HomeView, iw: usize, avail: usi
     let mood = pet.mood();
     let art = render_art(pet.species, mood, frame, ArtSize::Small);
     let art_fits = art[0].chars().count() <= iw && art.len() + 1 <= avail;
-    let ticker = || view.progress.clone().or_else(|| view.log.back().cloned());
+    let ticker = || view.progress.first().cloned().or_else(|| view.log.back().cloned());
 
     if art_fits {
         let mut content: Vec<Line> = art.iter().map(|l| plain(l.clone())).collect();
@@ -657,7 +651,7 @@ fn food_effects(food: &crate::pet::Food) -> Line {
 const FOOD_ICONS: [&str; 4] = [r"\∴/", "<><", "(@)", r"\_/"];
 
 // Index-aligned with app::Action and i18n::ACTION_LABELS.
-pub const ACTION_GLYPHS: [&str; 8] = [r"\∴/", "(o)", "z Z", "oOo", "1v1", "(!)", "-_-", "<=>"];
+pub const ACTION_GLYPHS: [&str; 9] = [r"\∴/", "(o)", "z Z", "oOo", "1v1", "(!)", "(*)", "-_-", "<=>"];
 
 // A window of `len` chars starting at `start`, preserving segment colors.
 fn line_slice(l: &Line, start: usize, len: usize) -> Line {
@@ -755,6 +749,260 @@ pub fn draw_menu(out: &mut impl Write, pet: &Pet, frame: usize, view: &HomeView,
     let modal = boxed(Some((i18n::MENU_TITLE, Color::Magenta)), Color::Magenta, &body, w);
     let content = overlay(dim(&build_home(pet, frame, view, iw, ih)), &modal);
     draw_screen(out, &content, &i18n::FOOTER_MENU)
+}
+
+// 3×5 pixel bitmaps for the big LCD clock, tty-clock style; each pixel
+// renders as a double-width "██" block so digits read square on screen.
+// Each row is 3 bits, most significant bit = left column.
+const DIGIT_BITS: [[u8; 5]; 10] = [
+    [0b111, 0b101, 0b101, 0b101, 0b111], // 0
+    [0b010, 0b110, 0b010, 0b010, 0b111], // 1
+    [0b111, 0b001, 0b111, 0b100, 0b111], // 2
+    [0b111, 0b001, 0b111, 0b001, 0b111], // 3
+    [0b101, 0b101, 0b111, 0b001, 0b001], // 4
+    [0b111, 0b100, 0b111, 0b001, 0b111], // 5
+    [0b111, 0b100, 0b111, 0b101, 0b111], // 6
+    [0b111, 0b001, 0b001, 0b001, 0b001], // 7
+    [0b111, 0b101, 0b111, 0b101, 0b111], // 8
+    [0b111, 0b101, 0b111, 0b001, 0b111], // 9
+];
+
+// Renders "24:59" as 5 rows of block art. Unknown chars are skipped.
+pub fn big_time(text: &str) -> Vec<String> {
+    let mut rows = vec![String::new(); 5];
+    for ch in text.chars() {
+        for (r, row) in rows.iter_mut().enumerate() {
+            match ch {
+                '0'..='9' => {
+                    let bits = DIGIT_BITS[ch as usize - '0' as usize][r];
+                    for c in [2u8, 1, 0] {
+                        row.push_str(if bits >> c & 1 == 1 { "██" } else { "  " });
+                    }
+                    row.push(' ');
+                }
+                ':' => row.push_str(if r == 1 || r == 3 { "██ " } else { "   " }),
+                _ => {}
+            }
+        }
+    }
+    rows
+}
+
+// What draw_pomo shows for a running cycle.
+pub struct PomoRun {
+    pub label: &'static str, // "foco" / "pausa"
+    pub focus: bool,
+    pub frac: u8, // elapsed % of the current phase
+    pub cycle: u32,
+}
+
+fn preset_rows(sel: usize) -> Vec<Line> {
+    i18n::POMO_PRESET_LABELS
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            let selected = i == sel;
+            vec![
+                seg(if selected { "▸ " } else { "  " }, Some(Color::Cyan)),
+                seg(format!("{} ", i + 1), Some(Color::Cyan)),
+                seg(*label, if selected { Some(Color::Cyan) } else { None }),
+            ]
+        })
+        .collect()
+}
+
+// Phase progress + cycle counter, shown under the big clock while running.
+// 20 cells + the label fit inside the clock's own width, so the clock column
+// never widens because of it.
+fn phase_row(run: &PomoRun, accent: Color) -> Line {
+    let cells = 20;
+    let filled = run.frac as usize * cells / 100;
+    vec![
+        seg("█".repeat(filled), Some(accent)),
+        seg("░".repeat(cells - filled), Some(Color::DarkGrey)),
+        seg(format!("  {} {}", i18n::POMO_CYCLE, run.cycle), Some(Color::DarkGrey)),
+    ]
+}
+
+fn task_rows(view: &HomeView, rows: usize) -> Vec<Line> {
+    let mut tasks: Vec<Line> = view.progress.iter().take(rows).cloned().collect();
+    if tasks.is_empty() {
+        tasks.push(tinted(i18n::POMO_NO_TASKS, Color::DarkGrey));
+    }
+    while tasks.len() < rows {
+        tasks.push(Vec::new());
+    }
+    tasks
+}
+
+// The dedicated pomodoro screen: a big LCD clock with the pet at its side
+// (it sleeps through breaks via the normal sleeping pose), the phase bar and
+// cycle count while running, the preset picker while idle, and the active
+// progress bars below. Same height-ladder discipline as the home screen.
+fn build_pomo(
+    pet: &Pet,
+    frame: usize,
+    view: &HomeView,
+    clock: &str,
+    run: Option<&PomoRun>,
+    sel: usize,
+    iw: usize,
+    ih: usize,
+) -> Vec<Line> {
+    let avail = ih.saturating_sub(1); // footer row
+    let accent = run.map_or(Color::Cyan, |r| if r.focus { Color::Yellow } else { Color::Blue });
+    let title = run.map_or(i18n::POMO_TITLE, |r| r.label);
+    let clock_art = big_time(clock);
+    let clock_w = clock_art.first().map_or(0, |l| l.chars().count());
+    let mood = pet.mood();
+    let face = || tinted(render_tiny(pet.species, mood, frame), mood_color(mood));
+
+    // The clock column: breathing row, clock, blank, then the phase bar or
+    // the presets. Every row is exactly clock_w wide and the column is always
+    // the same height, so the clock's position CANNOT change when the state
+    // flips between idle and running — only its digits do.
+    let mut column: Vec<Line> = vec![Vec::new()];
+    column.extend(clock_art.iter().map(|l| tinted(l.clone(), accent)));
+    column.push(Vec::new());
+    match run {
+        Some(r) => column.push(phase_row(r, accent)),
+        None => column.extend(preset_rows(sel)),
+    }
+    while column.len() < clock_art.len() + 2 + i18n::POMO_PRESET_LABELS.len() {
+        column.push(Vec::new());
+    }
+    let column: Vec<Line> = column.iter().map(|l| clip_pad(l, clock_w)).collect();
+
+    // Full tier: the pet+clock pair centered as one group with EQUAL margins,
+    // computed in screen coordinates (compensating the panel's own centering
+    // pad, so no stacked flooring skews it). Every width involved is fixed,
+    // so state changes cannot move the clock on the x axis.
+    if iw >= 72 {
+        let w = iw.min(96);
+        let inner = w.saturating_sub(4);
+        // draw_screen will center the w-wide lines inside iw with this pad:
+        let lpad = (iw - w) / 2;
+        for art in [Some(ArtSize::Large), Some(ArtSize::Small), None] {
+            let pet_block: Vec<Line> = match art {
+                Some(size) => {
+                    let art = render_art(pet.species, mood, frame, size);
+                    let art_w = art[0].chars().count();
+                    // same scene furniture as home: a reserved bubble row
+                    // (blank while sleeping — no reflow) and grass to stand on
+                    let bubble =
+                        if mood == Mood::Sleeping { String::new() } else { format!("( {} )", i18n::species_sound(pet.species)) };
+                    let mut block: Vec<Line> = vec![plain(format!("{bubble:>art_w$}"))];
+                    block.extend(art.iter().map(|l| plain(l.clone())));
+                    block.push(tinted(GRASS.chars().cycle().take(art_w).collect::<String>(), Color::DarkGreen));
+                    block
+                }
+                // no room for the full art: the tiny face keeps the pet on
+                // screen, sitting beside the clock (assistant-screen pattern)
+                None => vec![face()],
+            };
+            let pet_w = pet_block.iter().map(line_w).max().unwrap_or(0);
+            let group_w = pet_w + 2 + clock_w;
+            if group_w > inner {
+                continue; // this art size doesn't fit beside the clock
+            }
+            // the group's left edge on SCREEN, then translated to body coords
+            let left_w = (iw - group_w) / 2 - lpad - 2 + pet_w + 2;
+            // pet and clock group share the vertical center: the shorter
+            // block is offset so both midlines meet on the y axis.
+            let rows = pet_block.len().max(column.len());
+            let pet_top = (rows - pet_block.len()) / 2;
+            let col_top = (rows - column.len()) / 2;
+            let mut body: Vec<Line> = Vec::new();
+            for i in 0..rows {
+                let pet_row = i
+                    .checked_sub(pet_top)
+                    .and_then(|j| pet_block.get(j))
+                    .cloned()
+                    .unwrap_or_default();
+                // pet right-aligned against the column, 2 cols of air between
+                let mut l: Line = vec![seg(" ".repeat(left_w - 2 - pet_w), None)];
+                let gap = pet_w - line_w(&pet_row) + 2;
+                l.extend(pet_row);
+                l.push(seg(" ".repeat(gap), None));
+                match i.checked_sub(col_top).and_then(|j| column.get(j)) {
+                    Some(c) => l.extend(c.iter().cloned()),
+                    None => l.push(seg(" ".repeat(clock_w), None)),
+                }
+                body.push(l);
+            }
+            let mut content: Vec<Line> = vec![pomo_header(pet, view, w), Vec::new()];
+            content.extend(boxed(Some((title, accent)), accent, &body, w));
+            content.extend(panel(i18n::POMO_TASKS, &task_rows(view, 3), w));
+            if content.len() <= avail {
+                return content;
+            }
+        }
+    }
+
+    // Compact tier: face + title over the clock column, then the tasks. The
+    // whole block is exactly clock_w wide (draw_screen centers each line
+    // independently), so centering the block IS centering the clock, and the
+    // single width keeps one left edge for everything.
+    if iw >= clock_w && avail >= clock_art.len() + 3 {
+        let mut header: Line = face();
+        header.push(seg("  ", None));
+        header.push(seg(title, Some(accent)));
+        let mut content: Vec<Line> = vec![clip_pad(&header, clock_w)];
+        content.extend(column.iter().cloned()); // the breathing row is the air below the face
+        if avail >= content.len() + 2 {
+            content.push(clip_pad(&Vec::new(), clock_w));
+            content.extend(
+                task_rows(view, avail - content.len() - 1)
+                    .iter()
+                    .take(2)
+                    .map(|l| clip_pad(l, clock_w)),
+            );
+        }
+        if content.len() <= avail {
+            return content;
+        }
+    }
+
+    // Last resort: face + status on one line, plus the presets or first task.
+    let mut status: Line = face();
+    status.push(seg(format!(" {title}  "), None));
+    status.push(seg(clock.to_string(), Some(accent)));
+    let mut content: Vec<Line> = vec![status];
+    if run.is_none() {
+        content.extend(preset_rows(sel));
+    } else if let Some(t) = view.progress.first() {
+        content.push(t.clone());
+    }
+    content.truncate(avail.max(1));
+    pad_block(content)
+}
+
+// Identity on the left, a "pomodoro" chip on the right — the assistant
+// screen's header pattern.
+fn pomo_header(pet: &Pet, view: &HomeView, w: usize) -> Line {
+    let (mut header, _) = header_parts(pet, view);
+    let chip: Line = vec![(format!(" {} ", i18n::POMO_TITLE), Some(Color::Cyan), Some(Color::DarkGrey))];
+    let pad = w.saturating_sub(line_w(&header) + line_w(&chip));
+    header.push(seg(" ".repeat(pad), None));
+    header.extend(chip);
+    header
+}
+
+pub fn draw_pomo(
+    out: &mut impl Write,
+    pet: &Pet,
+    frame: usize,
+    view: &HomeView,
+    clock: &str,
+    run: Option<&PomoRun>,
+    sel: usize,
+) -> io::Result<()> {
+    let (cols, rows) = terminal::size()?;
+    let (iw, ih) = (cols.saturating_sub(2) as usize, rows.saturating_sub(2) as usize);
+    let content = build_pomo(pet, frame, view, clock, run, sel, iw, ih);
+    let footers: &[&str] =
+        if run.is_some() { &i18n::FOOTER_POMO_ACTIVE } else { &i18n::FOOTER_POMO_IDLE };
+    draw_screen(out, &content, footers)
 }
 
 pub fn draw_game(out: &mut impl Write, pet: &Pet, frame: usize, view: &HomeView) -> io::Result<()> {
@@ -1029,7 +1277,7 @@ mod tests {
     static EMPTY_LOG: VecDeque<Line> = VecDeque::new();
 
     fn view_of(log: &VecDeque<Line>) -> HomeView<'_> {
-        HomeView { log, clock_text: "12:00", hour: 12, timer: None, progress: None }
+        HomeView { log, clock_text: "12:00", hour: 12, timer: None, progress: Vec::new() }
     }
 
     // Every joined line must have the SAME width: draw_screen centers lines
@@ -1223,6 +1471,189 @@ mod tests {
     fn stat_bars_cover_all_stats_plus_xp() {
         let pet = Pet::default();
         assert_eq!(stat_bars(&pet, false).len(), 5);
+    }
+
+    #[test]
+    fn big_time_renders_uniform_rows_and_distinct_digits() {
+        let art = big_time("25:09");
+        assert_eq!(art.len(), 5);
+        let w = art[0].chars().count();
+        assert_eq!(w, 4 * 7 + 3); // 4 digits + colon
+        assert!(art.iter().all(|l| l.chars().count() == w));
+        for a in 0..10u8 {
+            for b in (a + 1)..10 {
+                assert_ne!(big_time(&a.to_string()), big_time(&b.to_string()), "{a} vs {b}");
+            }
+        }
+        assert!(big_time("x").iter().all(|l| l.is_empty())); // unknown chars skipped
+    }
+
+    // Same invariant as build_home: the pomodoro screen must fit the inner
+    // height at every terminal size, running or idle.
+    #[test]
+    fn build_pomo_fits_any_terminal_size() {
+        let pet = named_pet();
+        let run = PomoRun { label: "foco", focus: true, frac: 40, cycle: 2 };
+        for iw in [10, 20, 30, 45, 60, 72, 80, 96, 120] {
+            for ih in [1, 3, 5, 8, 12, 16, 20, 24, 28, 40] {
+                for r in [None, Some(&run)] {
+                    let c = build_pomo(&pet, 0, &view_of(&EMPTY_LOG), "25:00", r, 0, iw, ih);
+                    assert!(
+                        c.len() <= ih.saturating_sub(1).max(1),
+                        "overflow at {iw}x{ih} (run={}): {} lines",
+                        r.is_some(),
+                        c.len()
+                    );
+                }
+            }
+        }
+    }
+
+    // The pet must be on the pomodoro screen at EVERY size that has room for
+    // more than the single status line: full art, or the tiny face fallback.
+    #[test]
+    fn pomo_screen_always_shows_the_pet() {
+        let pet = named_pet();
+        for (iw, ih) in [(96, 30), (96, 14), (60, 12), (40, 10), (30, 5)] {
+            let c = build_pomo(&pet, 0, &view_of(&EMPTY_LOG), "25:00", None, 0, iw, ih);
+            let text: String = c.iter().flat_map(|l| l.iter()).map(|(s, ..)| s.as_str()).collect();
+            assert!(text.contains("▄█▄") || text.contains("(=^"), "no pet at {iw}x{ih}");
+        }
+    }
+
+    // Compact tiers must form ONE block: draw_screen centers lines
+    // independently, so any width variation would give the mascot, clock and
+    // presets each their own left edge.
+    #[test]
+    fn pomo_compact_tier_keeps_a_single_left_edge() {
+        let pet = named_pet();
+        let run = PomoRun { label: "foco", focus: true, frac: 40, cycle: 2 };
+        for (iw, ih) in [(71, 20), (60, 14), (44, 12), (36, 10)] {
+            for r in [None, Some(&run)] {
+                let c = build_pomo(&pet, 0, &view_of(&EMPTY_LOG), "25:00", r, 0, iw, ih);
+                let w = c.iter().map(line_w).max().unwrap_or(0);
+                assert!(
+                    c.iter().all(|l| line_w(l) == w),
+                    "ragged block at {iw}x{ih} (run={})",
+                    r.is_some()
+                );
+            }
+        }
+    }
+
+    // (row, col) of the clock's top-left edge: the first run of 6 '█' (the
+    // top row of the first digit of "25:00").
+    fn clock_pos(c: &[Line]) -> Option<(usize, usize)> {
+        for (y, l) in c.iter().enumerate() {
+            let chars: Vec<char> = l.iter().flat_map(|(s, ..)| s.chars()).collect();
+            if let Some(x) = chars.windows(6).position(|w| w.iter().all(|&ch| ch == '█')) {
+                return Some((y, x));
+            }
+        }
+        None
+    }
+
+    fn clock_x(c: &[Line]) -> Option<usize> {
+        clock_pos(c).map(|(_, x)| x)
+    }
+
+    // The clock must sit at the exact same x whatever the state (idle,
+    // running, with tasks) and whatever art rung the height picks — and that
+    // x must be the horizontal center.
+    #[test]
+    fn pomo_clock_is_pinned_to_the_horizontal_center() {
+        let pet = named_pet();
+        let run = PomoRun { label: "foco", focus: true, frac: 40, cycle: 2 };
+        let tasks = vec![progress_line("build", 40)];
+        let states: [(Option<&PomoRun>, &Vec<Line>); 3] =
+            [(None, &Vec::new()), (Some(&run), &Vec::new()), (Some(&run), &tasks)];
+        let clock_w = 31; // big "25:00"
+        // Full tier, several terminal widths (wider than the 96-col panel cap
+        // too) and both art rungs (tall → large art, short → small art): the
+        // pet+clock group must sit with EQUAL screen margins, and must not
+        // move — in x OR y — when the state flips.
+        for iw in [96, 100, 110] {
+            for ih in [30, 26, 21] {
+                let mut pos_seen = None;
+                for (r, progress) in &states {
+                    let view = HomeView {
+                        log: &EMPTY_LOG,
+                        clock_text: "12:00",
+                        hour: 12,
+                        timer: None,
+                        progress: (*progress).clone(),
+                    };
+                    let c = build_pomo(&pet, 0, &view, "25:00", *r, 0, iw, ih);
+                    let pos = clock_pos(&c).unwrap();
+                    assert_eq!(*pos_seen.get_or_insert(pos), pos, "clock moved at {iw}x{ih}");
+                    // screen coords: add draw_screen's centering pad
+                    let lw = c.iter().map(line_w).max().unwrap();
+                    let pad = (iw - lw) / 2;
+                    // the pet's left edge on screen, via the grass row (it
+                    // spans the pet block from its column 0)
+                    let left = c
+                        .iter()
+                        .find_map(|l| {
+                            let chars: Vec<char> = l.iter().flat_map(|(s, ..)| s.chars()).collect();
+                            chars.iter().position(|&ch| ch == '▁').map(|i| pad + i)
+                        })
+                        .unwrap();
+                    let right = iw - (pad + pos.1 + clock_w);
+                    assert!(
+                        (left as i64 - right as i64).abs() <= 1,
+                        "unbalanced at {iw}x{ih}: left {left}, right {right}"
+                    );
+                }
+            }
+        }
+        // With the tall art, the clock group must share the pet's vertical
+        // center (offset down), not hug the top of the panel.
+        let c = build_pomo(&pet, 0, &view_of(&EMPTY_LOG), "25:00", None, 0, 96, 30);
+        let (y, _) = clock_pos(&c).unwrap();
+        assert!(y > 4, "clock is top-aligned against the pet: row {y}");
+        // compact tier: the block is exactly clock-wide, so draw_screen's
+        // centering lands the clock itself on the center.
+        for (iw, ih) in [(70, 16), (50, 14), (40, 12)] {
+            for (r, progress) in &states {
+                let view = HomeView {
+                    log: &EMPTY_LOG,
+                    clock_text: "12:00",
+                    hour: 12,
+                    timer: None,
+                    progress: (*progress).clone(),
+                };
+                let c = build_pomo(&pet, 0, &view, "25:00", *r, 0, iw, ih);
+                let w = c.iter().map(line_w).max().unwrap();
+                assert_eq!(w, clock_w, "block wider than the clock at {iw}x{ih}");
+                assert_eq!(clock_x(&c), Some(0));
+            }
+        }
+    }
+
+    // The compact tier's tiny face must not sit glued to the clock: the
+    // column's breathing row provides one blank line between them.
+    #[test]
+    fn pomo_compact_keeps_air_between_face_and_clock() {
+        let pet = named_pet();
+        let run = PomoRun { label: "foco", focus: true, frac: 40, cycle: 1 };
+        for r in [None, Some(&run)] {
+            let c = build_pomo(&pet, 0, &view_of(&EMPTY_LOG), "25:00", r, 0, 60, 16);
+            let face_row =
+                c.iter().position(|l| l.iter().any(|(s, ..)| s.contains("(=^"))).unwrap();
+            let below: String = c[face_row + 1].iter().map(|(s, ..)| s.as_str()).collect();
+            assert!(below.trim().is_empty(), "face glued to the clock: {below:?}");
+        }
+    }
+
+    #[test]
+    fn pomo_full_tier_shows_clock_beside_pet_and_tasks_panel() {
+        let pet = named_pet();
+        let c = build_pomo(&pet, 0, &view_of(&EMPTY_LOG), "25:00", None, 0, 96, 30);
+        let text: String = c.iter().flat_map(|l| l.iter()).map(|(s, ..)| s.as_str()).collect();
+        assert!(text.contains("┌─ pomodoro"));
+        assert!(text.contains("┌─ tarefas em andamento"));
+        assert!(text.contains("25m foco"));
+        assert!(text.contains("██")); // the big clock is there
     }
 
     #[test]

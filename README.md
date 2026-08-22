@@ -10,7 +10,7 @@ tarefas longas e dispara lembretes e timers.
 ```bash
 cargo run              # abre o pet (primeira vez: escolha a espécie e o nome)
 cargo run -- --gallery # imprime a arte de todos os pets e sai
-cargo test             # 50 testes
+cargo test             # 59 testes
 ```
 
 Requer um terminal com suporte a 256 cores. Para ter o binário no PATH:
@@ -39,8 +39,8 @@ Requer um terminal com suporte a 256 cores. Para ter o binário no PATH:
 | `a` | alterna modo pet ↔ modo assistente |
 | `q` | sair |
 
-O menu reúne comer, brincar, dormir, banho, jokenpô, assistente, zen e trocar
-de pet. Os atalhos diretos continuam funcionando escondidos para quem já
+O menu reúne comer, brincar, dormir, banho, jokenpô, assistente, pomodoro,
+zen e trocar de pet. Os atalhos diretos continuam funcionando escondidos para quem já
 decorou: `f p s b m z c`. O seletor de pet é uma grade com as 10 espécies
 visíveis (setas navegam, `enter` confirma, `esc` cancela) e prévia animada.
 
@@ -67,7 +67,25 @@ tama ask "subir pra produção?" --opcoes sim,nao   # bloqueia; imprime a escolh
 tama lembrar "standup" --em 10m
 tama timer 25m                                    # regressivo no cabeçalho
 tama do comemorar                                 # comemorar · dormir · acordar · alimentar
+tama watch cargo test --release                   # roda e reporta sucesso/erro sozinho
+tama pomodoro 25m --pausa 5m                      # ciclos de foco; "tama pomodoro parar" encerra
 ```
+
+`tama watch` avisa quando o comando começa e reporta o resultado pelo exit
+code (verde/vermelho), repassando o exit code adiante — dá para usar no meio
+de qualquer script. `--de origem` renomeia a fonte; se o app não estiver
+aberto, o comando roda mesmo assim. No pomodoro o cabeçalho mostra a fase
+(`foco`/`pausa`) com o regressivo, e o pet dorme junto nas pausas.
+
+O pomodoro é um **modo** com tela própria (menu de ações → pomodoro): um
+relógio LCD gigante rodando ao lado do pet na cena — dourado no foco, azul
+na pausa, quando o pet cochila junto até a pausa acabar —, barra de
+progresso da fase, contador de ciclos e as tarefas em andamento embaixo.
+Iniciar (presets de 25/50/15 min, ou via CLI/pipe com o app na home) abre a
+tela e **fica** nela; as viradas de fase acontecem ali mesmo, sem pular para
+o assistente. `enter` para o ciclo, `esc` volta pra home com o regressivo no
+cabeçalho. Responsiva como a home: sem largura para o pet, fica só o
+relógio; em painéis minúsculos, vira uma linha de status.
 
 Uso real num script:
 
@@ -88,11 +106,15 @@ echo '{"progresso":62,"de":"backup"}'                        > ~/.local/share/ta
 echo '{"lembrete":"standup","em":"10m"}'                     > ~/.local/share/tama/input
 echo '{"timer":"25m"}'                                       > ~/.local/share/tama/input
 echo '{"acao":"comemorar"}'                                  > ~/.local/share/tama/input
+echo '{"pomodoro":"25m","pausa":"5m"}'                       > ~/.local/share/tama/input
 ```
 
 Campos: `fala` · `pergunta`+`opcoes`+`id` · `progresso` · `lembrete`+`em` ·
-`timer` · `acao`, mais `tipo` (`info|sucesso|alerta|erro`) e `de` (origem).
-Durações em `s|m|h`. Linha inválida é ignorada em silêncio.
+`timer` · `acao` · `pomodoro`+`pausa` (`"pomodoro":"off"` encerra), mais
+`tipo` (`info|sucesso|alerta|erro`) e `de` (origem). Durações em `s|m|h`.
+Linha inválida é ignorada em silêncio. Progresso é por origem: cada `de` tem
+sua própria barra no painel de eventos, então tarefas concorrentes não se
+atropelam (aos 100% a barra sai e vira evento de sucesso).
 
 Respostas viram linhas JSON em `~/.local/share/tama/output`:
 
@@ -109,8 +131,37 @@ aberto.
 O pet reage ao que está falando: **info** cara neutra piscando (balão ciano),
 **sucesso** cara feliz dando pulinho (verde), **alerta** olhos arregalados sem
 piscar (amarelo), **erro** cara triste tremendo (vermelho) — dá pra saber que
-é erro sem ler. Progresso ocupa a primeira linha do painel de eventos e aos
-100% vira evento de sucesso.
+é erro sem ler. Progresso ocupa as primeiras linhas do painel de eventos (uma
+barra por origem) e aos 100% vira evento de sucesso.
+
+### Integrações prontas
+
+O tama vira o rosto de qualquer ferramenta que consiga rodar um comando.
+
+**Claude Code** — em `~/.claude/settings.json`, avisa quando o Claude termina
+ou quer sua atenção:
+
+```json
+{
+  "hooks": {
+    "Stop": [{"hooks": [{"type": "command", "command": "tama say 'claude terminou' --de claude --tipo sucesso"}]}],
+    "Notification": [{"hooks": [{"type": "command", "command": "tama say 'claude precisa de você' --de claude --tipo alerta"}]}]
+  }
+}
+```
+
+**git** — comemore cada commit:
+
+```bash
+printf '#!/bin/sh\ntama say "commit: $(git log -1 --pretty=%%s)" --de git --tipo sucesso\n' \
+  > .git/hooks/post-commit && chmod +x .git/hooks/post-commit
+```
+
+**Qualquer build/CI local** — embrulhe no `watch`:
+
+```bash
+tama watch --de deploy ./deploy.sh
+```
 
 ## Arquivos
 
@@ -130,7 +181,7 @@ piscar (amarelo), **erro** cara triste tremendo (vermelho) — dá pra saber que
 | `ui.rs` | renderização: painéis, tiers responsivos, telas |
 | `app.rs` | loop principal, telas interativas, fila do assistente |
 | `assistant.rs` | contrato do pipe: parser JSON flat, leitor, respostas |
-| `cli.rs` | subcomandos `say/ask/lembrar/timer/do` |
+| `cli.rs` | subcomandos `say/ask/lembrar/timer/do/watch/pomodoro` |
 | `i18n.rs` | todo texto visível (pt-BR; outro idioma entra só aqui) |
 
 Sem dependências além de `crossterm`. O renderer nunca limpa a tela (repinta

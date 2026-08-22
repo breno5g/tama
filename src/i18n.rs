@@ -109,8 +109,8 @@ pub const FOOTER_HOME: [&str; 3] = [
 pub const ACTIONS_TITLE: &str = "ações";
 pub const FOOTER_ACTIONS: [&str; 2] = ["[↑↓] ou número  [enter] usar  [esc] voltar", "↑↓ 1-9 enter esc"];
 // Index-aligned with app::Action and ui::ACTION_GLYPHS.
-pub const ACTION_LABELS: [&str; 8] =
-    ["comer", "brincar", "dormir", "banho", "jokenpô", "assistente", "zen", "trocar pet"];
+pub const ACTION_LABELS: [&str; 9] =
+    ["comer", "brincar", "dormir", "banho", "jokenpô", "assistente", "pomodoro", "zen", "trocar pet"];
 pub const FOOTER_ASSISTANT: [&str; 3] = [
     "[enter] próxima da fila  [x] limpar fila  [a] modo pet  [q] sair",
     "enter:próxima x:limpar a:pet q:sair",
@@ -156,6 +156,36 @@ pub fn msg_action_fed(name: &str) -> String {
 }
 pub const UNKNOWN_SENDER: &str = "?";
 
+fn fmt_secs(secs: u64) -> String {
+    if secs >= 60 { format!("{}m{:02}s", secs / 60, secs % 60) } else { format!("{secs}s") }
+}
+pub fn msg_watch_start(cmd: &str) -> String {
+    format!("rodando: {cmd}")
+}
+pub fn msg_watch_ok(cmd: &str, secs: u64) -> String {
+    format!("{cmd} — ok ({})", fmt_secs(secs))
+}
+pub fn msg_watch_fail(cmd: &str, code: i32, secs: u64) -> String {
+    format!("{cmd} — falhou (exit {code}, {})", fmt_secs(secs))
+}
+
+pub const POMO_FOCUS: &str = "foco";
+pub const POMO_BREAK: &str = "pausa";
+pub const POMO_FROM: &str = "pomodoro";
+pub const MSG_POMO_START: &str = "pomodoro começou — foco!";
+pub const MSG_POMO_BREAK: &str = "pausa! hora de descansar";
+pub const MSG_POMO_FOCUS: &str = "pausa acabou — foco!";
+pub const MSG_POMO_STOPPED: &str = "pomodoro encerrado";
+pub const POMO_TITLE: &str = "pomodoro";
+pub const POMO_TASKS: &str = "tarefas em andamento";
+pub const POMO_NO_TASKS: &str = "nenhuma tarefa agora";
+pub const POMO_CYCLE: &str = "ciclo";
+// Index-aligned with app::POMO_PRESETS.
+pub const POMO_PRESET_LABELS: [&str; 3] =
+    ["25m foco · 5m pausa", "50m foco · 10m pausa", "15m foco · 3m pausa"];
+pub const FOOTER_POMO_IDLE: [&str; 2] = ["[↑↓] ou número  [enter] começar  [esc] voltar", "↑↓ 1-3 enter esc"];
+pub const FOOTER_POMO_ACTIVE: [&str; 2] = ["[enter] parar  [esc] voltar", "enter esc"];
+
 pub const CLI_NOT_RUNNING: &str = "tama não está rodando — abra o app primeiro";
 pub const CLI_PIPE_ERROR: &str = "não consegui escrever no pipe do tama";
 pub const CLI_USAGE_SAY: &str = "uso: tama say \"texto\" [--de origem] [--tipo info|sucesso|alerta|erro]";
@@ -163,6 +193,8 @@ pub const CLI_USAGE_ASK: &str = "uso: tama ask \"pergunta\" [--opcoes a,b,c] [--
 pub const CLI_USAGE_REMIND: &str = "uso: tama lembrar \"texto\" --em 10m";
 pub const CLI_USAGE_TIMER: &str = "uso: tama timer 25m";
 pub const CLI_USAGE_DO: &str = "uso: tama do comemorar|dormir|acordar|alimentar";
+pub const CLI_USAGE_WATCH: &str = "uso: tama watch [--de origem] comando [args...]";
+pub const CLI_USAGE_POMODORO: &str = "uso: tama pomodoro [25m] [--pausa 5m] | tama pomodoro parar";
 pub const FOOTER_MENU: [&str; 2] = ["[↑↓] escolher  [enter] dar  [esc] voltar", "↑↓ enter esc"];
 pub const FOOTER_GAME: [&str; 2] = ["[1] pedra  [2] papel  [3] tesoura  [esc] voltar", "1 2 3 esc"];
 pub const FOOTER_PICKER: [&str; 2] = ["[←↑↓→] navegar  [enter] confirmar  [esc] voltar", "setas · enter · esc"];

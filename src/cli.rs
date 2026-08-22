@@ -24,6 +24,8 @@ pub fn run(args: &[String]) -> Option<i32> {
         "lembrar" => Some(remind(rest)),
         "timer" => Some(timer(rest)),
         "do" => Some(action(rest)),
+        "watch" => Some(watch(rest)),
+        "pomodoro" => Some(pomodoro(rest)),
         _ => None,
     }
 }
@@ -71,12 +73,7 @@ fn say(rest: &[String]) -> i32 {
     let Some(text) = positional(rest) else { return usage(i18n::CLI_USAGE_SAY) };
     let from = flag(rest, "--de").unwrap_or_default();
     let kind = flag(rest, "--tipo").unwrap_or_else(|| "info".to_string());
-    send(format!(
-        "{{\"fala\":\"{}\",\"tipo\":\"{}\",\"de\":\"{}\"}}\n",
-        json_escape(&text),
-        json_escape(&kind),
-        json_escape(&from)
-    ))
+    send(say_line(&text, &kind, &from))
 }
 
 fn ask(rest: &[String]) -> i32 {
@@ -129,6 +126,68 @@ fn action(rest: &[String]) -> i32 {
     send(format!("{{\"acao\":\"{}\"}}\n", json_escape(&a)))
 }
 
+// `--de` is only recognized BEFORE the command so the watched command keeps
+// its own flags intact: `tama watch --de ci cargo test --release`.
+fn watch_parse(rest: &[String]) -> Option<(String, &[String])> {
+    let (from, cmd_args) = match rest.first().map(String::as_str) {
+        Some("--de") => (rest.get(1).cloned(), rest.get(2..).unwrap_or_default()),
+        _ => (None, rest),
+    };
+    if cmd_args.is_empty() {
+        return None;
+    }
+    Some((from.unwrap_or_else(|| cmd_args[0].clone()), cmd_args))
+}
+
+fn say_line(text: &str, kind: &str, from: &str) -> String {
+    format!(
+        "{{\"fala\":\"{}\",\"tipo\":\"{}\",\"de\":\"{}\"}}\n",
+        json_escape(text),
+        json_escape(kind),
+        json_escape(from)
+    )
+}
+
+// Runs a command and reports its outcome to the pet: an info message when it
+// starts, success/error by exit code when it ends. The notification is best
+// effort — the command runs (and its exit code is propagated) even when the
+// app is closed.
+fn watch(rest: &[String]) -> i32 {
+    let Some((from, cmd_args)) = watch_parse(rest) else { return usage(i18n::CLI_USAGE_WATCH) };
+    let cmd = cmd_args.join(" "); // display only
+    send(say_line(&i18n::msg_watch_start(&cmd), "info", &from));
+    let started = std::time::Instant::now();
+    // exec the args directly — joining into a shell string would lose quoting
+    let status = std::process::Command::new(&cmd_args[0]).args(&cmd_args[1..]).status();
+    let secs = started.elapsed().as_secs();
+    let (text, kind, code) = match status {
+        Ok(s) if s.success() => (i18n::msg_watch_ok(&cmd, secs), "sucesso", 0),
+        Ok(s) => {
+            let code = s.code().unwrap_or(1);
+            (i18n::msg_watch_fail(&cmd, code, secs), "erro", code)
+        }
+        Err(e) => (format!("{cmd}: {e}"), "erro", 127),
+    };
+    send(say_line(&text, kind, &from));
+    code
+}
+
+fn pomodoro(rest: &[String]) -> i32 {
+    let work = positional(rest).unwrap_or_else(|| "25m".to_string());
+    if work == "parar" || work == "off" {
+        return send("{\"pomodoro\":\"off\"}\n".to_string());
+    }
+    let pause = flag(rest, "--pausa").unwrap_or_else(|| "5m".to_string());
+    if crate::assistant::parse_duration(&work).is_none() || crate::assistant::parse_duration(&pause).is_none() {
+        return usage(i18n::CLI_USAGE_POMODORO);
+    }
+    send(format!(
+        "{{\"pomodoro\":\"{}\",\"pausa\":\"{}\"}}\n",
+        json_escape(&work),
+        json_escape(&pause)
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,5 +209,20 @@ mod tests {
     fn unknown_command_falls_through_to_tui() {
         assert_eq!(run(&v(&["--gallery"])), None);
         assert_eq!(run(&[]), None);
+    }
+
+    #[test]
+    fn watch_parse_keeps_the_commands_own_flags() {
+        let rest = v(&["--de", "ci", "cargo", "test", "--release"]);
+        let (from, cmd) = watch_parse(&rest).unwrap();
+        assert_eq!(from, "ci");
+        assert_eq!(cmd, &rest[2..]);
+        // without --de, the origin defaults to the program name
+        let rest = v(&["make", "-j4", "build"]);
+        let (from, cmd) = watch_parse(&rest).unwrap();
+        assert_eq!(from, "make");
+        assert_eq!(cmd, &rest[..]);
+        assert!(watch_parse(&[]).is_none());
+        assert!(watch_parse(&v(&["--de", "ci"])).is_none());
     }
 }
