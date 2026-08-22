@@ -9,7 +9,7 @@ use crate::assistant::{self, Kind, Msg};
 use crate::i18n;
 use crate::pet::{adj, Mood, Pet, DECAY_SECS, FOODS};
 use crate::species::{render_art, render_tiny, ArtSize, Species, SPECIES};
-use crate::state::save;
+use crate::state::{self, save};
 use crate::ui::{self, draw_screen, plain, seg, tinted, Clock, HomeView, Line};
 
 const LOG_CAP: usize = 12;
@@ -133,6 +133,24 @@ struct Pomo {
     cycles: u32, // 1-based: which focus block we are on
 }
 
+impl From<state::PomoState> for Pomo {
+    fn from(p: state::PomoState) -> Self {
+        Pomo { work: p.work, rest: p.rest, focus: p.focus, until: p.until, cycles: p.cycles }
+    }
+}
+
+impl Pomo {
+    fn saved(&self) -> state::PomoState {
+        state::PomoState {
+            work: self.work,
+            rest: self.rest,
+            focus: self.focus,
+            until: self.until,
+            cycles: self.cycles,
+        }
+    }
+}
+
 // Flips the phase when the current one ended; returns the phase just entered
 // (true = focus).
 fn pomo_tick(p: &mut Pomo, now: u64) -> Option<bool> {
@@ -228,6 +246,56 @@ impl Inbox {
         });
         froms
     }
+}
+
+// A question blocks its sender and you may be in another window — or another
+// room, with the tablet on the desk. The bell rings on arrival; on Termux the
+// pending question also becomes an Android notification (one, replaced in
+// place) that goes away once nothing is pending.
+fn notify_cmd(pending: Option<&str>) -> std::process::Command {
+    match pending {
+        Some(text) => {
+            let mut c = std::process::Command::new("termux-notification");
+            c.args(["--id", "tama-ask", "--title", "tama", "--content", text]);
+            c
+        }
+        None => {
+            let mut c = std::process::Command::new("termux-notification-remove");
+            c.arg("tama-ask");
+            c
+        }
+    }
+}
+
+fn notify_android(pending: Option<&str>) {
+    let mut cmd = notify_cmd(pending);
+    // detached: the notification command must not stall the render loop, and
+    // waiting in the thread reaps it instead of leaving a zombie behind
+    std::thread::spawn(move || {
+        let _ = cmd.status();
+    });
+}
+
+// Quitting with a question on screen must not leave the notification behind;
+// here the wait is fine (and necessary — the process is about to end).
+fn notify_clear(notified: bool) {
+    if notified {
+        let _ = notify_cmd(None).status();
+    }
+}
+
+fn pending_ask(inbox: &Inbox) -> Option<String> {
+    let ask = |m: &Msg| match m {
+        Msg::Ask { text, from, .. } => {
+            Some(if from.is_empty() { text.clone() } else { format!("{from}: {text}") })
+        }
+        _ => None,
+    };
+    inbox
+        .current
+        .as_ref()
+        .and_then(|(m, _)| ask(m))
+        .or_else(|| inbox.queue.iter().find_map(ask))
 }
 
 // Answers the current question — by picked option or typed text, same path.
@@ -397,9 +465,14 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
     let _ = std::fs::write(crate::state::output_path(), "");
     let mut inbox = Inbox::new();
     let mut progress: Vec<(String, u8)> = Vec::new();
-    let mut reminders: Vec<(String, u64)> = Vec::new();
-    let mut timer_until: Option<u64> = None;
-    let mut pomo: Option<Pomo> = None;
+    // reminders, timer and pomodoro outlive the process: Android kills Termux
+    // whenever it feels like it, and "me lembra em 10min" must survive that
+    let saved = state::load_schedule(assistant::now_epoch());
+    let mut reminders: Vec<(String, u64)> = saved.reminders;
+    let mut timer_until: Option<u64> = saved.timer;
+    let mut pomo: Option<Pomo> = saved.pomo.map(Pomo::from);
+    let mut schedule_dirty = false;
+    let mut notified = false; // an Android notification is currently showing
 
     let mut screen = Screen::Home;
     // where an Ask yanked the user from; restored when the inbox drains
@@ -434,6 +507,8 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                 }
                 Msg::Ask { .. } => {
                     inbox.queue.push_front(msg); // questions jump the queue
+                    let _ = out.write_all(b"\x07"); // flushed with the next frame
+
                     // a question blocks its sender: interrupt from ANY screen
                     if !matches!(screen, Screen::Assistant) {
                         prev_screen = screen;
@@ -476,10 +551,17 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                         push_log(&mut log, &time, i18n::msg_progress_done(&from), Some(("(100%)".into(), Color::Green)));
                     }
                 }
-                Msg::Reminder { text, at } => reminders.push((text, at)),
-                Msg::Timer { until } => timer_until = Some(until),
+                Msg::Reminder { text, at } => {
+                    reminders.push((text, at));
+                    schedule_dirty = true;
+                }
+                Msg::Timer { until } => {
+                    timer_until = Some(until);
+                    schedule_dirty = true;
+                }
                 Msg::Pomodoro { work, rest } => {
                     pomo = Some(Pomo { work, rest, focus: true, until: now + work, cycles: 1 });
+                    schedule_dirty = true;
                     pet.sleeping = false;
                     push_log(&mut log, &time, i18n::MSG_POMO_START.into(), None);
                     // a starting pomodoro opens its screen, like messages do
@@ -489,6 +571,7 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                 }
                 Msg::PomodoroOff => {
                     if pomo.take().is_some() {
+                        schedule_dirty = true;
                         pet.sleeping = false;
                         push_log(&mut log, &time, i18n::MSG_POMO_STOPPED.into(), None);
                     }
@@ -498,7 +581,9 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
         }
 
         // Fire due reminders and the timer.
-        for text in due_reminders(&mut reminders, now) {
+        let fired = due_reminders(&mut reminders, now);
+        schedule_dirty |= !fired.is_empty();
+        for text in fired {
             inbox.queue.push_back(Msg::Say { text: i18n::msg_reminder(&text), from: String::new(), kind: Kind::Warn });
             if matches!(screen, Screen::Home) {
                 screen = Screen::Assistant;
@@ -506,6 +591,7 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
         }
         if timer_until.is_some_and(|u| u <= now) {
             timer_until = None;
+            schedule_dirty = true;
             inbox.queue.push_back(Msg::Say { text: i18n::MSG_TIMER_DONE.into(), from: String::new(), kind: Kind::Warn });
             if matches!(screen, Screen::Home) {
                 screen = Screen::Assistant;
@@ -513,6 +599,7 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
         }
         if let Some(p) = &mut pomo {
             if let Some(focus) = pomo_tick(p, now) {
+                schedule_dirty = true;
                 pet.sleeping = !focus; // the pet rests with you on breaks
                 let text = if focus { i18n::MSG_POMO_FOCUS } else { i18n::MSG_POMO_BREAK };
                 if matches!(screen, Screen::Pomo(_)) {
@@ -566,6 +653,23 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                 screen = prev_screen;
                 prev_screen = Screen::Home;
             }
+        }
+
+        if schedule_dirty {
+            let _ = state::save_schedule(&state::Schedule {
+                reminders: reminders.clone(),
+                timer: timer_until,
+                pomo: pomo.as_ref().map(Pomo::saved),
+            });
+            schedule_dirty = false;
+        }
+
+        // One notification tracks "there is a question waiting", whatever
+        // ended it: answered, ignored, expired or the app closing.
+        let pending = pending_ask(&inbox);
+        if pending.is_some() != notified {
+            notify_android(pending.as_deref());
+            notified = pending.is_some();
         }
 
         let view = HomeView {
@@ -644,6 +748,7 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                 Screen::Home => match k.code {
                     KeyCode::Char('q') | KeyCode::Esc => {
                         inbox.clear();
+                        notify_clear(notified);
                         return Ok(());
                     }
                     KeyCode::Char(' ') => screen = Screen::Actions(0),
@@ -758,6 +863,7 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                         // enter starts the selected preset — or stops the running cycle
                         KeyCode::Enter => match pomo.take() {
                             Some(_) => {
+                                schedule_dirty = true;
                                 pet.sleeping = false;
                                 push_log(&mut log, &time, i18n::MSG_POMO_STOPPED.into(), None);
                                 None
@@ -771,6 +877,7 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                     };
                     if let Some((work, rest)) = start {
                         pomo = Some(Pomo { work, rest, focus: true, until: now + work, cycles: 1 });
+                        schedule_dirty = true;
                         pet.sleeping = false;
                         push_log(&mut log, &time, i18n::MSG_POMO_START.into(), None);
                         // stay here: this screen IS the focus mode
@@ -805,6 +912,7 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                 Screen::Assistant => match k.code {
                     KeyCode::Char('q') => {
                         inbox.clear();
+                        notify_clear(notified);
                         return Ok(());
                     }
                     KeyCode::Char('a') => {
@@ -1004,6 +1112,30 @@ mod tests {
         assert!(inbox.current.is_none());
         assert_eq!(inbox.queue.len(), 2); // "b" (sem expira) e "c" (ainda viva) ficam
         assert!(inbox.purge_expired(100).is_empty());
+    }
+
+    #[test]
+    fn pending_ask_drives_the_notification_and_ignores_plain_messages() {
+        let mut inbox = Inbox::new();
+        assert_eq!(pending_ask(&inbox), None);
+        inbox.queue.push_back(Msg::Say { text: "oi".into(), from: "ci".into(), kind: Kind::Info });
+        assert_eq!(pending_ask(&inbox), None, "uma fala não é pergunta pendente");
+        inbox.queue.push_back(Msg::Ask {
+            text: "posso?".into(),
+            options: vec!["sim".into()],
+            id: "i".into(),
+            from: "claude".into(),
+            expires: None,
+            input: false,
+        });
+        // queued or current, a waiting question always shows up
+        assert_eq!(pending_ask(&inbox), Some("claude: posso?".to_string()));
+        inbox.promote();
+        inbox.current = None; // the say was promoted and dismissed
+        inbox.promote();
+        assert_eq!(pending_ask(&inbox), Some("claude: posso?".to_string()));
+        inbox.advance();
+        assert_eq!(pending_ask(&inbox), None);
     }
 
     #[test]

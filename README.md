@@ -175,8 +175,19 @@ Respostas de perguntas viram linhas JSON em `~/.local/share/tama/output`
 ```
 
 Pergunta descartada (esc, limpar fila ou sair do app) responde `"ignored"` —
-nenhum script fica pendurado. Lembretes e timer valem enquanto o app está
-aberto.
+nenhum script fica pendurado.
+
+Pergunta chegando **toca o bell do terminal**; no Termux ela também vira uma
+notificação do Android (uma só, substituída em lugar, que some quando não há
+mais nada esperando) — dá para deixar o tablet na mesa e só olhar quando
+apitar. Requer o pacote `termux-api`; fora do Termux o aviso é só o bell.
+
+Lembretes, timer e pomodoro **sobrevivem ao fechamento do app**: ficam em
+`~/.local/share/tama/schedule` e voltam ao abrir, com o pomodoro retomando de
+onde parou. O que venceu enquanto o app estava fechado há mais de uma hora é
+descartado (lembrete de dois dias atrás disparando no boot é ruído, não
+lembrete). Os saves são atômicos, então um kill no meio da escrita — o
+Android faz isso com o Termux — não corrompe nada.
 
 ### Expressões por tipo
 
@@ -248,6 +259,7 @@ tama watch --from deploy ./deploy.sh
 | Caminho | Conteúdo |
 |---|---|
 | `~/.local/share/tama/state` | save do pet (texto `chave=valor`) |
+| `~/.local/share/tama/schedule` | lembretes, timer e pomodoro em andamento |
 | `~/.local/share/tama/input` | named pipe de entrada do assistente |
 | `~/.local/share/tama/output` | respostas das perguntas (JSON por linha) |
 
