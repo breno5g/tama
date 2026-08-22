@@ -663,10 +663,64 @@ const FOOD_ICONS: [&str; 4] = [r"\∴/", "<><", "(@)", r"\_/"];
 // Index-aligned with app::Action and i18n::ACTION_LABELS.
 pub const ACTION_GLYPHS: [&str; 8] = [r"\∴/", "(o)", "z Z", "oOo", "1v1", "(!)", "-_-", "<=>"];
 
-// The actions overlay from the controls redesign: a numbered modal list.
-pub fn draw_actions(out: &mut impl Write, items: &[usize], sel: usize) -> io::Result<()> {
-    let (cols, _) = terminal::size()?;
-    let iw = cols.saturating_sub(2) as usize;
+// A window of `len` chars starting at `start`, preserving segment colors.
+fn line_slice(l: &Line, start: usize, len: usize) -> Line {
+    let mut out: Line = Vec::new();
+    let mut pos = 0usize;
+    for (s, fg, bg) in l {
+        let seg_start = pos;
+        pos += s.chars().count();
+        let from = start.max(seg_start);
+        let to = (start + len).min(pos);
+        if to > from {
+            let t: String = s.chars().skip(from - seg_start).take(to - from).collect();
+            out.push((t, *fg, *bg));
+        }
+    }
+    out
+}
+
+fn dim(lines: &[Line]) -> Vec<Line> {
+    lines
+        .iter()
+        .map(|l| l.iter().map(|(s, ..)| (s.clone(), Some(Color::DarkGrey), None)).collect())
+        .collect()
+}
+
+// Splices a modal block over the center of a backdrop, per the design's
+// overlay: the screen behind stays visible, dimmed. Falls back to the modal
+// alone when the backdrop is too small to hold it.
+fn overlay(base: Vec<Line>, over: &[Line]) -> Vec<Line> {
+    let mut base = pad_block(base);
+    let bw = base.iter().map(line_w).max().unwrap_or(0);
+    let ow = over.iter().map(line_w).max().unwrap_or(0);
+    if ow > bw || over.len() > base.len() {
+        return over.to_vec();
+    }
+    let top = (base.len() - over.len()) / 2;
+    let left = (bw - ow) / 2;
+    for (i, o) in over.iter().enumerate() {
+        let row = &base[top + i];
+        let mut composed = line_slice(row, 0, left);
+        composed.extend(clip_pad(o, ow));
+        composed.extend(line_slice(row, left + ow, bw - left - ow));
+        base[top + i] = composed;
+    }
+    base
+}
+
+// The actions overlay from the controls redesign: a numbered modal list
+// floating over the dimmed home screen.
+pub fn draw_actions(
+    out: &mut impl Write,
+    pet: &Pet,
+    frame: usize,
+    view: &HomeView,
+    items: &[usize],
+    sel: usize,
+) -> io::Result<()> {
+    let (cols, rows) = terminal::size()?;
+    let (iw, ih) = (cols.saturating_sub(2) as usize, rows.saturating_sub(2) as usize);
     let w = iw.min(38);
     let mut body: Vec<Line> = Vec::new();
     for (i, &action) in items.iter().enumerate() {
@@ -678,7 +732,9 @@ pub fn draw_actions(out: &mut impl Write, items: &[usize], sel: usize) -> io::Re
             seg(i18n::ACTION_LABELS[action], if selected { Some(Color::Cyan) } else { None }),
         ]);
     }
-    let content = panel_titled(i18n::ACTIONS_TITLE, Color::Magenta, &body, w);
+    let modal = boxed(Some((i18n::ACTIONS_TITLE, Color::Magenta)), Color::Magenta, &body, w);
+    let backdrop = dim(&build_home(pet, frame, view, iw, ih));
+    let content = overlay(backdrop, &modal);
     draw_screen(out, &content, &i18n::FOOTER_ACTIONS)
 }
 
@@ -1080,6 +1136,36 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn line_slice_cuts_across_segments() {
+        let l: Line = vec![seg("abc", None), seg("def", Some(Color::Red))];
+        assert_eq!(line_slice(&l, 1, 4).iter().map(|(s, ..)| s.as_str()).collect::<String>(), "bcde");
+        assert_eq!(line_w(&line_slice(&l, 0, 6)), 6);
+        assert_eq!(line_w(&line_slice(&l, 4, 10)), 2);
+    }
+
+    // The modal must sit centered over the backdrop with the backdrop intact
+    // around it — total dimensions unchanged.
+    #[test]
+    fn overlay_centers_modal_and_keeps_backdrop_dimensions() {
+        let base: Vec<Line> = (0..9).map(|_| plain("##########")).collect();
+        let modal: Vec<Line> = (0..3).map(|_| plain("XXXX")).collect();
+        let out = overlay(base, &modal);
+        assert_eq!(out.len(), 9);
+        assert!(out.iter().all(|l| line_w(l) == 10));
+        let mid: String = out[4].iter().map(|(s, ..)| s.as_str()).collect();
+        assert_eq!(mid, "###XXXX###");
+        let top: String = out[0].iter().map(|(s, ..)| s.as_str()).collect();
+        assert_eq!(top, "##########");
+    }
+
+    #[test]
+    fn overlay_too_big_falls_back_to_modal_alone() {
+        let base: Vec<Line> = vec![plain("##")];
+        let modal: Vec<Line> = vec![plain("XXXX"), plain("XXXX")];
+        assert_eq!(overlay(base, &modal).len(), 2);
     }
 
     #[test]
