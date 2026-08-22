@@ -29,10 +29,12 @@ TAMA_LANG=pt tama      # português, mesmo num sistema em inglês
 ```
 
 A API não muda de idioma: flags, chaves do JSON e valores de `command` são
-sempre em inglês. Só o que aparece na tela é traduzido — com uma exceção: uma
-pergunta **sem** `actions` ganha as opções padrão do idioma ativo (`sim/não` ou
-`yes/no`), e é isso que o `tama ask` imprime. Script que compara a resposta deve
-passar `--options` explícito.
+sempre em inglês. Só o que aparece na tela é traduzido — com uma exceção que
+vaza para os scripts: uma pergunta **sem opções** (`tama ask` sem `--options`,
+ou `"actions":[]` no JSON) recebe o par padrão do idioma ativo — `sim/não` ou
+`yes/no` — e é isso que volta como resposta. Quem compara a resposta num script
+deve passar `--options` explícito, que é o que todos os exemplos abaixo e os
+scripts em `scripts/` fazem.
 
 ## O pet
 
@@ -166,7 +168,7 @@ LAN de casa; o HTTP não responde perguntas nem lê nada do pet).
 | `message` | string | fala — ou pergunta, se houver `actions` |
 | `from` | string | origem exibida |
 | `type` | `info\|success\|warn\|error` | cor/expressão da fala |
-| `actions` | array de strings (ou string com `\n`) | opções de resposta (máx. 9) |
+| `actions` | array de strings (ou string com `\n`) | opções de resposta (máx. 9); vazio cai no `sim/não` do idioma ativo |
 | `input` | `true` | adiciona "outra (escrever)" à lista; sem `actions`, abre o campo direto |
 | `command` | `celebrate\|sleep\|wake\|feed` | ação no pet; pode vir junto de `message` |
 | `id` | string | identifica a resposta (HTTP gera sozinho) |
