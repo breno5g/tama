@@ -168,7 +168,10 @@ fn print_line(out: &mut impl Write, row: u16, iw: usize, line: &Line) -> io::Res
         if budget == 0 {
             break;
         }
-        let t: String = s.chars().take(budget).collect();
+        // External text reaches here verbatim: a newline or tab would move
+        // the cursor mid-frame and shear the layout. One char in, one out,
+        // so the width accounting stays honest.
+        let t: String = s.chars().take(budget).map(|c| if c.is_control() { ' ' } else { c }).collect();
         budget -= t.chars().count();
         if let Some(c) = fg {
             queue!(out, SetForegroundColor(*c))?;
@@ -1072,28 +1075,54 @@ fn wrapped_text(text: &str, w: usize, rows: usize) -> Vec<Line> {
     wrapped.into_iter().map(plain).collect()
 }
 
-// The typed-answer field, right-anchored so the caret stays visible while
-// the text grows past the width.
-fn input_row(buf: &str, w: usize) -> Line {
-    let inner = w.saturating_sub(3); // "> " + caret
-    let shown: String = match buf.chars().count() > inner {
-        true => buf.chars().skip(buf.chars().count() - inner).collect(),
-        false => buf.to_string(),
-    };
-    vec![seg("> ", Some(Color::DarkGrey)), seg(shown, None), seg("_", Some(Color::Cyan))]
+// Breaks the buffer into field-width lines, preserving every character
+// (spaces included — this is text being typed, not prose being laid out) and
+// honouring the newlines the writer put there.
+fn input_lines(buf: &str, w: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    for para in buf.split('\n') {
+        let mut chars = para.chars().peekable();
+        loop {
+            out.push(chars.by_ref().take(w.max(1)).collect::<String>());
+            if chars.peek().is_none() {
+                break;
+            }
+        }
+    }
+    out
+}
+
+// The typed answer over `rows` lines, following the caret: what scrolled out
+// of view above is flagged with ↑, so a long answer is written comfortably in
+// a card that never changes size.
+fn input_rows(buf: &str, w: usize, rows: usize) -> Vec<Line> {
+    let inner = w.saturating_sub(2); // room for the "> " gutter
+    let lines = input_lines(buf, inner.saturating_sub(1).max(1)); // and the caret
+    let hidden = lines.len().saturating_sub(rows);
+    let mut out: Vec<Line> = Vec::new();
+    for (i, text) in lines.iter().skip(hidden).enumerate() {
+        let gutter = match (i, hidden) {
+            (0, 0) => "> ",
+            (0, _) => "↑ ",
+            _ => "  ",
+        };
+        let mut row: Line = vec![seg(gutter, Some(Color::DarkGrey)), seg(text.clone(), None)];
+        if i + hidden + 1 == lines.len() {
+            row.push(seg("_", Some(Color::Cyan))); // the caret rides the last line
+        }
+        out.push(row);
+    }
+    while out.len() < rows {
+        out.push(Vec::new());
+    }
+    out
 }
 
 // Rows an ask occupies below its text: the typing field replaces the options
 // while it is open (same slot count either way — no reflow).
 fn answer_rows(m: &AssistantMsg, w: usize) -> Vec<Line> {
     match m.input {
-        Some(buf) => {
-            let mut rows = vec![input_row(buf, w)];
-            while rows.len() < OPTION_ROWS {
-                rows.push(Vec::new());
-            }
-            rows
-        }
+        Some(buf) => input_rows(buf, w, OPTION_ROWS),
         None => option_rows(&option_labels(m.options.unwrap_or_default(), m.input_ok), m.sel, w),
     }
 }
@@ -1465,14 +1494,41 @@ mod tests {
     }
 
     #[test]
-    fn input_row_keeps_the_caret_visible_as_text_grows() {
-        let short = input_row("oi", 20);
-        assert_eq!(short.iter().map(|(s, ..)| s.clone()).collect::<String>(), "> oi_");
-        // longer than the field: tail is shown, caret still last
-        let long = input_row(&"a".repeat(50), 20);
-        let text: String = long.iter().map(|(s, ..)| s.clone()).collect();
-        assert!(text.starts_with("> ") && text.ends_with('_'));
-        assert_eq!(text.chars().count(), 20);
+    fn input_wraps_without_losing_a_single_character() {
+        // char-exact: spaces and doubled blanks survive the round trip
+        let buf = "duas  palavras e mais texto";
+        assert_eq!(input_lines(buf, 10).concat(), buf);
+        // explicit newlines start a new line, empty ones included
+        assert_eq!(input_lines("a\n\nb", 10), vec!["a".to_string(), String::new(), "b".to_string()]);
+    }
+
+    #[test]
+    fn input_rows_follow_the_caret_and_flag_what_scrolled_off() {
+        let text = |r: &Line| r.iter().map(|(s, ..)| s.clone()).collect::<String>();
+        // short answer: gutter, text, caret — the rest of the slots stay empty
+        let rows = input_rows("oi", 20, OPTION_ROWS);
+        assert_eq!(rows.len(), OPTION_ROWS);
+        assert_eq!(text(&rows[0]), "> oi_");
+        assert_eq!(line_w(&rows[2]), 0);
+        // long answer: fills the rows, caret on the last, ↑ where it scrolled
+        let rows = input_rows(&"a".repeat(200), 20, OPTION_ROWS);
+        assert!(text(&rows[0]).starts_with('↑'), "{:?}", text(&rows[0]));
+        assert!(text(&rows[2]).ends_with('_'));
+        assert!(rows.iter().all(|r| line_w(r) <= 20), "estourou a largura");
+        // multi-line answers keep their shape
+        let rows = input_rows("linha um\nlinha dois", 20, OPTION_ROWS);
+        assert_eq!(text(&rows[0]), "> linha um");
+        assert_eq!(text(&rows[1]), "  linha dois_");
+    }
+
+    #[test]
+    fn control_chars_never_reach_the_terminal() {
+        // a newline mid-frame would move the cursor and shear the layout
+        let mut out: Vec<u8> = Vec::new();
+        print_line(&mut out, 0, 20, &vec![seg("a\nb\tc", None)]).unwrap();
+        let painted = String::from_utf8_lossy(&out);
+        assert!(painted.contains("a b c"), "{painted:?}");
+        assert!(!painted.contains('\n') && !painted.contains('\t'));
     }
 
     #[test]

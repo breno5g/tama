@@ -14,7 +14,7 @@ use crate::ui::{self, draw_screen, plain, seg, tinted, Clock, HomeView, Line};
 
 const LOG_CAP: usize = 12;
 const SAY_SECS: u64 = 8;
-const ANSWER_CAP: usize = 200; // typed answer: long enough for prose, bounded
+const ANSWER_CAP: usize = 1000; // typed answer: room for a paragraph, still bounded
 
 #[derive(Clone, Copy)]
 enum Screen {
@@ -905,6 +905,14 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                 Screen::Assistant if input.is_some() => {
                     let buf = input.as_mut().unwrap();
                     match k.code {
+                        // alt+enter breaks the line; plain enter sends, which
+                        // is the reachable one on a phone keyboard
+                        KeyCode::Enter
+                            if k.modifiers.contains(event::KeyModifiers::ALT)
+                                && buf.chars().count() < ANSWER_CAP =>
+                        {
+                            buf.push('\n');
+                        }
                         KeyCode::Enter if !buf.trim().is_empty() => {
                             let answer = buf.trim().to_string();
                             answer_ask(&mut inbox, &mut log, &time, &answer);

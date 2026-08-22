@@ -61,8 +61,11 @@ Pergunta se responde com `↑↓` + `enter`, como o menu de ações, ou direto
 pelo número (`1-9`). Lista maior que o espaço rola sozinha atrás do cursor,
 com `↑N`/`↓N` indicando o que ficou fora de vista. Quando a pergunta aceita
 texto livre (`input`), a última opção é **outra (escrever)** — como o "Other"
-dos prompts do Claude: escolher ela (ou apertar `t`) abre um campo, `enter`
-envia e `esc` volta para a lista. É assim que um LLM recebe prosa de volta,
+dos prompts do Claude: escolher ela (ou apertar `t`) abre um campo de várias
+linhas — o texto quebra sozinho e acompanha o cursor (`↑` marca o que rolou
+para cima), `alt+enter` força uma quebra, `enter` envia e `esc` volta para a
+lista. Cabem 1000 caracteres, o bastante para responder um LLM com um
+parágrafo inteiro. É assim que um LLM recebe prosa de volta,
 e não só uma das opções que ele imaginou.
 A API — comandos, flags, chaves e valores do protocolo — é em inglês; só o
 que aparece na tela segue em português. Mensagem chegando abre o modo
