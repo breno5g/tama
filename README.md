@@ -57,13 +57,17 @@ ticker, progresso e eventos têm espaço reservado, então nada pula na tela.
 
 Programas externos falam com o tama por um named pipe; respostas saem num
 arquivo de saída. Mensagem chegando abre o modo assistente sozinha; perguntas
-furam a fila; falas expiram em ~8s (ou `enter`).
+furam a fila **e interrompem qualquer tela** (pomodoro, jogo, menu — ao
+responder você volta para onde estava); falas expiram em ~8s (ou `enter`).
 
 ### CLI (o jeito simples)
 
 ```bash
 tama say "deploy concluído!" --de deploy-bot --tipo sucesso
 tama ask "subir pra produção?" --opcoes sim,nao   # bloqueia; imprime a escolha
+tama ask "qual banco?" --opcoes "Postgres" --opcoes "Sim, o de sempre" \
+  --timeout 60s --padrao "Postgres"               # --opcoes repetível aceita vírgula;
+                                                  # expirou -> imprime o --padrao (sem ele: exit 124)
 tama lembrar "standup" --em 10m
 tama timer 25m                                    # regressivo no cabeçalho
 tama do comemorar                                 # comemorar · dormir · acordar · alimentar
@@ -101,7 +105,7 @@ Uma linha de JSON flat por mensagem em `~/.local/share/tama/input`:
 
 ```bash
 echo '{"fala":"backup ok","tipo":"info","de":"cron"}'        > ~/.local/share/tama/input
-echo '{"pergunta":"subir?","opcoes":"sim,nao","id":"rel-1"}' > ~/.local/share/tama/input
+echo '{"pergunta":"subir?","opcoes":"sim\nnao","id":"rel-1"}' > ~/.local/share/tama/input
 echo '{"progresso":62,"de":"backup"}'                        > ~/.local/share/tama/input
 echo '{"lembrete":"standup","em":"10m"}'                     > ~/.local/share/tama/input
 echo '{"timer":"25m"}'                                       > ~/.local/share/tama/input
@@ -109,9 +113,13 @@ echo '{"acao":"comemorar"}'                                  > ~/.local/share/ta
 echo '{"pomodoro":"25m","pausa":"5m"}'                       > ~/.local/share/tama/input
 ```
 
-Campos: `fala` · `pergunta`+`opcoes`+`id` · `progresso` · `lembrete`+`em` ·
-`timer` · `acao` · `pomodoro`+`pausa` (`"pomodoro":"off"` encerra), mais
-`tipo` (`info|sucesso|alerta|erro`) e `de` (origem). Durações em `s|m|h`.
+Campos: `fala` · `pergunta`+`opcoes`+`id`+`expira` · `progresso` ·
+`lembrete`+`em` · `timer` · `acao` · `pomodoro`+`pausa` (`"pomodoro":"off"`
+encerra), mais `tipo` (`info|sucesso|alerta|erro`) e `de` (origem). Durações
+em `s|m|h`. Strings aceitam os escapes JSON `\n` `\t` `\r` `\"` `\\`; as
+opções são separadas por `\n` (então podem conter vírgula). `expira` é epoch
+absoluto: passou dele, a pergunta some da fila sem resposta (o CLI põe
+sozinho quando você usa `--timeout`, com contagem regressiva na tela).
 Linha inválida é ignorada em silêncio. Progresso é por origem: cada `de` tem
 sua própria barra no painel de eventos, então tarefas concorrentes não se
 atropelam (aos 100% a barra sai e vira evento de sucesso).
@@ -149,6 +157,32 @@ ou quer sua atenção:
   }
 }
 ```
+
+**Claude Code respondido pelo tama** — os scripts em `scripts/` vão além do
+aviso: os prompts de permissão e as perguntas de múltipla escolha do Claude
+aparecem no tama e você responde de lá (teclas 1-9), sem voltar ao terminal
+do Claude. Sem resposta em 60s/120s (ou com o tama fechado), o prompt
+aparece no Claude Code normalmente — nada trava.
+
+```json
+{
+  "hooks": {
+    "PermissionRequest": [{"hooks": [{"type": "command", "command": "/caminho/tama/scripts/tama-permission.sh", "timeout": 90}]}],
+    "PreToolUse": [{"matcher": "AskUserQuestion", "hooks": [{"type": "command", "command": "/caminho/tama/scripts/tama-question.sh", "timeout": 180}]}]
+  }
+}
+```
+
+- `tama-permission.sh` (hook `PermissionRequest`): dispara só quando um
+  prompt interativo apareceria; `permitir`/`negar` decidem na hora,
+  `decidir no claude` (ou timeout) devolve o prompt ao harness.
+- `tama-question.sh` (hook `PreToolUse` com matcher `AskUserQuestion`,
+  requer `jq`): cada pergunta do Claude vira um `tama ask` com as mesmas
+  opções; a escolha volta para o Claude como feedback e ele continua.
+- Claude no desktop, tama no celular (Termux): os scripts leem `TAMA_CMD`,
+  então `"command": "TAMA_CMD='ssh tamafone tama' /caminho/scripts/tama-permission.sh"`
+  manda as perguntas para o telefone (alias `tamafone` do
+  `scripts/termux-setup.sh`).
 
 **git** — comemore cada commit:
 
