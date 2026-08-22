@@ -6,10 +6,10 @@
     { "file": "Acoes.dc.html", "x": 900, "y": 780, "w": 940, "h": 640 }
   ],
   "annotations": [
-    { "id": "como-funciona", "x": 0, "y": -170, "w": 340, "text": "Tama como assistente virtual\n\nO app escuta um named pipe (~/.local/share/tama/input). Qualquer programa escreve uma linha JSON (ou usa o CLI tama say, que so escreve no pipe). Mensagens entram numa fila e o pet fala uma por vez num balao.\n\n[a] alterna entre modo pet e modo assistente." },
+    { "id": "como-funciona", "x": 0, "y": -190, "w": 340, "text": "Tama como assistente virtual — IMPLEMENTADO\n\nO app escuta um named pipe (~/.local/share/tama/input). Qualquer programa escreve uma linha JSON (ou usa o CLI tama say/ask/lembrar/timer/do). Mensagens entram numa fila (perguntas na frente) e o pet fala uma por vez num balao; mensagem chegando ja abre o modo assistente.\n\n[a] alterna entre modo pet e modo assistente. Ha um tier compacto (carinha + balao) para panes baixos e um minimo para panes minusculos." },
     { "id": "nota-expressoes", "x": 1090, "y": -130, "w": 300, "text": "O tipo da mensagem muda a cara do pet, a cor do balao e a animacao — da pra saber se e erro sem ler." },
-    { "id": "nota-integracao", "x": 0, "y": 1530, "w": 340, "text": "Implementacao sugerida no app atual: ler o pipe em modo non-blocking dentro do loop de 250ms que ja existe. O CLI vira subcomandos do mesmo binario (say, ask, lembrar, timer, do); tama ask escreve no input e espera a linha com seu id no output." },
-    { "id": "nota-acoes", "x": 900, "y": 1470, "w": 320, "text": "Alem de falar: perguntar (a resposta volta pro programa — aprovacoes de deploy, confirmar acoes), progresso de tarefas longas, lembrete/timer, e acoes de pet amarradas a eventos." }
+    { "id": "nota-integracao", "x": 0, "y": 1530, "w": 340, "text": "Como ficou: o pipe e lido por uma thread que alimenta o loop de 250ms via channel (std puro, sem deps novas). O CLI sao subcomandos do mesmo binario (say, ask, lembrar, timer, do); tama ask escreve no input e espera a linha com seu id no output. Perguntas descartadas (limpar fila ou sair) respondem \"ignorada\" para nenhum script ficar pendurado." },
+    { "id": "nota-acoes", "x": 900, "y": 1470, "w": 320, "text": "Tudo implementado: perguntar (a resposta volta pro programa — aprovacoes de deploy), progresso de tarefas longas, lembrete/timer, e acoes de pet amarradas a eventos (comemorar, dormir, acordar, alimentar)." }
   ],
   "launch": { "view": "canvas" }
 }

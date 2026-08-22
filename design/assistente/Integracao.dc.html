@@ -30,7 +30,7 @@
 
   <div style="border: 1px solid #3b4261; position: relative; padding: 20px 18px 14px 18px; display: flex; flex-direction: column; gap: 6px;">
     <span style="position: absolute; top: -9px; left: 12px; background: #16161e; padding: 0 6px; color: #565f89; font-size: 12px;">3 · ações úteis (o pet faz, não só fala)</span>
-    <div><span style="color: #565f89;">$ </span><span style="color: #7dcfff;">tama ask</span> <span style="color: #9ece6a;">"subir release 2.4 pra produção?"</span> <span style="color: #e0af68;">--opcoes</span> sim,nao <span style="color: #565f89;"># bloqueia e imprime a escolha no stdout</span></div>
+    <div><span style="color: #565f89;">$ </span><span style="color: #7dcfff;">tama ask</span> <span style="color: #9ece6a;">"subir release 2.4 pra produção?"</span> <span style="color: #e0af68;">--opcoes</span> sim,nao <span style="color: #565f89;"># bloqueia e imprime a escolha no stdout; esc/limpar responde "ignorada"</span></div>
     <div><span style="color: #565f89;">$ </span><span style="color: #7dcfff;">tama lembrar</span> <span style="color: #9ece6a;">"standup"</span> <span style="color: #e0af68;">--em</span> 10m</div>
     <div><span style="color: #565f89;">$ </span><span style="color: #7dcfff;">tama timer</span> 25m <span style="color: #565f89;"># pomodoro no cabeçalho; alarme no fim</span></div>
     <div><span style="color: #565f89;">$ </span><span style="color: #7dcfff;">echo</span> <span style="color: #9ece6a;">'{"progresso":62,"de":"backup"}'</span> <span style="color: #c0caf5;">&gt;</span> ~/.local/share/tama/input</div>
@@ -39,9 +39,9 @@
 
   <div style="border: 1px solid #3b4261; position: relative; padding: 20px 18px 14px 18px; display: flex; flex-direction: column; gap: 4px;">
     <span style="position: absolute; top: -9px; left: 12px; background: #16161e; padding: 0 6px; color: #565f89; font-size: 12px;">contrato</span>
-    <div style="color: #a9b1d6;">entrada: <span style="color: #9ece6a;">fala</span> · <span style="color: #9ece6a;">pergunta</span>+<span style="color: #9ece6a;">opcoes</span>+<span style="color: #9ece6a;">id</span> · <span style="color: #9ece6a;">progresso</span> · <span style="color: #9ece6a;">lembrete</span>+<span style="color: #9ece6a;">em</span> · <span style="color: #9ece6a;">acao</span> — mais <span style="color: #9ece6a;">tipo</span> info|sucesso|alerta|erro e <span style="color: #9ece6a;">de</span> origem</div>
+    <div style="color: #a9b1d6;">entrada: <span style="color: #9ece6a;">fala</span> · <span style="color: #9ece6a;">pergunta</span>+<span style="color: #9ece6a;">opcoes</span>+<span style="color: #9ece6a;">id</span> · <span style="color: #9ece6a;">progresso</span> · <span style="color: #9ece6a;">lembrete</span>+<span style="color: #9ece6a;">em</span> · <span style="color: #9ece6a;">timer</span> · <span style="color: #9ece6a;">acao</span> — mais <span style="color: #9ece6a;">tipo</span> info|sucesso|alerta|erro e <span style="color: #9ece6a;">de</span> origem</div>
     <div style="color: #a9b1d6;">saída: respostas viram linhas JSON em <span style="color: #7dcfff;">~/.local/share/tama/output</span> — <span style="color: #9ece6a;">{"id":"rel-24","resposta":"sim"}</span> (o CLI tama ask lê isso e imprime por você)</div>
-    <div style="color: #565f89; font-size: 12px;">mensagens entram numa fila; perguntas têm prioridade. linha inválida é ignorada em silêncio.</div>
+    <div style="color: #565f89; font-size: 12px;">JSON flat, uma linha por mensagem; opcoes separadas por vírgula; durações em s|m|h. mensagens entram numa fila, perguntas têm prioridade e falas expiram em ~8s. linha inválida é ignorada em silêncio. se o app não estiver aberto, o CLI falha em 2s ("tama não está rodando"). lembretes e timer valem enquanto o app está aberto.</div>
   </div>
 </div>
 </x-dc>
