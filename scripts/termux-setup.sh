@@ -8,6 +8,9 @@ REPO_DIR="$HOME/tama"
 
 echo "==> pacotes (rust, git, openssh)"
 pkg update -y
+# upgrade é obrigatório: rust e o LLVM do sistema precisam estar em versões
+# casadas, senão o rustc quebra com "cannot locate symbol LLVMGetNextGlobal"
+pkg upgrade -y -o Dpkg::Options::=--force-confnew
 pkg install -y rust git openssh
 
 echo "==> ssh"
