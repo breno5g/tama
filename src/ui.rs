@@ -1034,18 +1034,72 @@ pub struct AssistantMsg<'a> {
     pub kind: Kind,
     pub kind_label: &'a str,
     pub options: Option<&'a [String]>,
+    pub expires_in: Option<u64>, // seconds until the ask is dropped
 }
 
 const BUBBLE_TEXT_ROWS: usize = 4; // fixed: message length must not resize the layout
 const QUEUE_ROWS: usize = 2;
+const OPTION_ROWS: usize = 3; // fixed: option count must not resize the layout
+
+// Fixed-width countdown so the ticking never reflows the line.
+fn countdown_seg(expires_in: u64) -> Seg {
+    let color = if expires_in <= 10 { Color::Red } else { Color::Yellow };
+    (format!("{} {:>3}s", i18n::EXPIRES_LABEL, expires_in.min(999)), Some(color), None)
+}
+
+// Truncates to `w` with a visible … instead of clip_pad's silent cut.
+fn ellipsize(line: Line, w: usize) -> Line {
+    if line_w(&line) <= w {
+        return line;
+    }
+    let mut out = clip_pad(&line, w.saturating_sub(1));
+    out.push(seg("…", Some(Color::DarkGrey)));
+    out
+}
+
+// wrap() capped at `rows` lines; overflow ends the last visible row with …
+fn wrapped_text(text: &str, w: usize, rows: usize) -> Vec<Line> {
+    let mut wrapped = wrap(text, w);
+    if wrapped.len() > rows.max(1) {
+        wrapped.truncate(rows.max(1));
+        let last = wrapped.last_mut().unwrap();
+        let keep: String = last.chars().take(w.saturating_sub(1)).collect();
+        *last = format!("{keep}…");
+    }
+    wrapped.into_iter().map(plain).collect()
+}
+
+// One option per row in OPTION_ROWS fixed slots (blank-padded, so option
+// count never resizes the layout). Options past the last slot pack into it;
+// anything wider than `w` clips with a trailing …
+fn option_rows(options: &[String], w: usize) -> Vec<Line> {
+    let mut rows: Vec<Line> = Vec::new();
+    for (i, o) in options.iter().enumerate().take(9) {
+        let mut item: Line = vec![chip(&(i + 1).to_string()), seg(format!(" {o}"), None)];
+        match rows.len() < OPTION_ROWS {
+            true => rows.push(item),
+            false => {
+                let last = rows.last_mut().unwrap();
+                last.push(seg("  ", None));
+                last.append(&mut item);
+            }
+        }
+    }
+    while rows.len() < OPTION_ROWS {
+        rows.push(Vec::new());
+    }
+    rows.into_iter().map(|r| ellipsize(r, w)).collect()
+}
 
 // The design's speech bubble: an untitled box in the kind's color with a tail
-// pointing at the pet, the message inside, and a `de · tipo · hora` meta row.
+// pointing at the pet, the message inside, a `de · tipo · hora` meta row and
+// OPTION_ROWS option slots. Always the same height for every message shape.
 fn bubble_panel(msg: Option<&AssistantMsg>, clock_text: &str, w: usize) -> Vec<Line> {
+    const BODY_ROWS: usize = BUBBLE_TEXT_ROWS + 2 + OPTION_ROWS; // text + blank + meta + options
     let inner = w.saturating_sub(4);
     let Some(m) = msg else {
         let mut body: Vec<Line> = vec![tinted(i18n::NO_MESSAGES, Color::DarkGrey)];
-        while body.len() < BUBBLE_TEXT_ROWS + 3 {
+        while body.len() < BODY_ROWS {
             body.push(Vec::new());
         }
         return boxed(None, Color::DarkGrey, &body, w);
@@ -1056,7 +1110,8 @@ fn bubble_panel(msg: Option<&AssistantMsg>, clock_text: &str, w: usize) -> Vec<L
     if m.options.is_some() && !m.from.is_empty() {
         body.push(tinted(format!("{} {}:", m.from, i18n::ASKS_VERB), Color::DarkGrey));
     }
-    body.extend(wrap(m.text, inner).into_iter().take(BUBBLE_TEXT_ROWS - body.len()).map(plain));
+    let text_rows = BUBBLE_TEXT_ROWS - body.len();
+    body.extend(wrapped_text(m.text, inner, text_rows));
     while body.len() < BUBBLE_TEXT_ROWS {
         body.push(Vec::new());
     }
@@ -1069,17 +1124,15 @@ fn bubble_panel(msg: Option<&AssistantMsg>, clock_text: &str, w: usize) -> Vec<L
     }
     meta.push(seg(format!("{}: {}", i18n::TYPE_LABEL, m.kind_label), Some(Color::DarkGrey)));
     meta.push(seg(format!("   {clock_text}"), Some(Color::DarkGrey)));
-    body.push(meta);
-    let mut opts: Line = Vec::new();
-    if let Some(options) = m.options {
-        for (i, o) in options.iter().enumerate().take(9) {
-            opts.push(chip(&(i + 1).to_string()));
-            opts.push(seg(format!(" {o}   "), None));
-        }
-        opts.push(chip("esc"));
-        opts.push(seg(format!(" {}", i18n::ESC_IGNORE), Some(Color::DarkGrey)));
+    if let Some(e) = m.expires_in {
+        meta.push(seg("   ", None));
+        meta.push(countdown_seg(e));
     }
-    body.push(opts);
+    body.push(meta);
+    match m.options {
+        Some(options) => body.extend(option_rows(options, inner)),
+        None => body.extend((0..OPTION_ROWS).map(|_| Line::new())),
+    }
 
     let mut rows = boxed(None, color, &body, w);
     // tail toward the pet on the second body row
@@ -1100,13 +1153,27 @@ pub fn draw_assistant(
 ) -> io::Result<()> {
     let (cols, rows) = terminal::size()?;
     let (iw, ih) = (cols.saturating_sub(2) as usize, rows.saturating_sub(2) as usize);
+    let footers: &[&str] =
+        if msg.is_some_and(|m| m.options.is_some()) { &i18n::FOOTER_ASK } else { &i18n::FOOTER_ASSISTANT };
+    let content = build_assistant(pet, frame, msg, queue_preview, queue_len, view, iw, ih);
+    draw_screen(out, &content, footers)
+}
+
+pub fn build_assistant(
+    pet: &Pet,
+    frame: usize,
+    msg: Option<&AssistantMsg>,
+    queue_preview: &[String],
+    queue_len: usize,
+    view: &HomeView,
+    iw: usize,
+    ih: usize,
+) -> Vec<Line> {
     // Per-kind expression and animation; a calm happy face while idle.
     let face = msg
         .map(|m| kind_face(m.kind, frame))
         .unwrap_or_else(|| Mood::Happy.face(frame % 4 == 3));
     let kind = msg.map(|m| m.kind);
-    let footers: &[&str] =
-        if msg.is_some_and(|m| m.options.is_some()) { &i18n::FOOTER_ASK } else { &i18n::FOOTER_ASSISTANT };
 
     let mut content: Vec<Line> = Vec::new();
     if iw >= 72 {
@@ -1147,7 +1214,7 @@ pub fn draw_assistant(
     if content.is_empty() && iw >= 44 && ih >= 7 {
         // Compact tier, following the design's "pergunta" panel: the face
         // beside a small kind-colored bubble with a tail; asker and options
-        // live inside the bubble. Fixed 4 body rows — no reflow.
+        // live inside the bubble. Fixed body rows per shape — no reflow.
         let mut face_str = crate::species::render_tiny_face(pet.species, face.0, face.1);
         if let Some(k) = kind {
             face_str = animate_tiny(face_str, k, frame);
@@ -1157,28 +1224,37 @@ pub fn draw_assistant(
         let color = msg.map(|m| kind_color(m.kind)).unwrap_or(Color::DarkGrey);
         let mut body: Vec<Line> = Vec::new();
         match msg {
-            Some(m) => {
-                if m.options.is_some() && !m.from.is_empty() {
-                    body.push(tinted(format!("{} {}:", m.from, i18n::ASKS_VERB), Color::DarkGrey));
+            // ask: asker + countdown row, 2 text rows, OPTION_ROWS option rows
+            Some(m) if m.options.is_some() => {
+                let mut first: Line = Vec::new();
+                if !m.from.is_empty() {
+                    first.push(seg(format!("{} {}:", m.from, i18n::ASKS_VERB), Some(Color::DarkGrey)));
                 }
-                body.extend(wrap(m.text, inner).into_iter().take(3 - body.len()).map(plain));
+                if let Some(e) = m.expires_in {
+                    if !first.is_empty() {
+                        first.push(seg("  ", None));
+                    }
+                    first.push(countdown_seg(e));
+                }
+                body.push(first);
+                body.extend(wrapped_text(m.text, inner, 2));
+                while body.len() < 3 {
+                    body.push(Vec::new());
+                }
+                body.extend(option_rows(m.options.unwrap_or_default(), inner));
+            }
+            Some(m) => {
+                body.extend(wrapped_text(m.text, inner, 3));
                 while body.len() < 3 {
                     body.push(Vec::new());
                 }
                 let mut last: Line = Vec::new();
-                if let Some(options) = m.options {
-                    for (i, o) in options.iter().enumerate().take(9) {
-                        last.push(chip(&(i + 1).to_string()));
-                        last.push(seg(format!(" {o}   "), None));
-                    }
-                } else {
-                    if !m.from.is_empty() {
-                        last.push(seg(format!("{}: ", i18n::FROM_LABEL), Some(Color::DarkGrey)));
-                        last.push(seg(m.from, Some(color)));
-                        last.push(seg("   ", None));
-                    }
-                    last.push(seg(format!("{}: {}", i18n::TYPE_LABEL, m.kind_label), Some(Color::DarkGrey)));
+                if !m.from.is_empty() {
+                    last.push(seg(format!("{}: ", i18n::FROM_LABEL), Some(Color::DarkGrey)));
+                    last.push(seg(m.from, Some(color)));
+                    last.push(seg("   ", None));
                 }
+                last.push(seg(format!("{}: {}", i18n::TYPE_LABEL, m.kind_label), Some(Color::DarkGrey)));
                 body.push(last);
             }
             None => {
@@ -1201,20 +1277,34 @@ pub fn draw_assistant(
         }
     }
     if content.is_empty() {
-        // last resort: face + message + options as one left-aligned block
+        // Last resort (Termux 26×8): one header row — face, sender, countdown,
+        // queue badge — then text and options split over the height that's left.
+        // Options are never sacrificed below what fits; text keeps at least a row.
         let face_color = kind.map(kind_color).unwrap_or(Color::Green);
-        let mut rows: Vec<Line> =
-            vec![tinted(crate::species::render_tiny_face(pet.species, face.0, face.1), face_color)];
+        let width = iw.max(10).min(60);
+        let mut header: Line =
+            vec![seg(crate::species::render_tiny_face(pet.species, face.0, face.1), Some(face_color))];
         if let Some(m) = msg {
-            let width = iw.max(10).min(60);
-            rows.extend(wrap(m.text, width).into_iter().take(3).map(plain));
+            if !m.from.is_empty() {
+                header.push(seg(format!(" {}", m.from), Some(Color::DarkGrey)));
+            }
+            if let Some(e) = m.expires_in {
+                header.push(seg(" ", None));
+                header.push(countdown_seg(e));
+            }
+        }
+        if queue_len > 0 {
+            header.push(seg(format!(" +{queue_len}"), Some(Color::DarkGrey)));
+        }
+        let mut rows: Vec<Line> = vec![ellipsize(header, width)];
+        let avail = ih.saturating_sub(1).max(2); // content rows (footer takes one)
+        if let Some(m) = msg {
+            // slots reserved by shape, not by option count — no reflow between asks
+            let opt_rows = if m.options.is_some() { OPTION_ROWS.min(avail.saturating_sub(2)) } else { 0 };
+            let text_rows = (avail - 1 - opt_rows).clamp(1, 3);
+            rows.extend(wrapped_text(m.text, width, text_rows));
             if let Some(options) = m.options {
-                let mut opts: Line = Vec::new();
-                for (i, o) in options.iter().enumerate().take(9) {
-                    opts.push(chip(&(i + 1).to_string()));
-                    opts.push(seg(format!(" {o} "), None));
-                }
-                rows.push(opts);
+                rows.extend(option_rows(options, width).into_iter().take(opt_rows.max(1)));
             }
         } else {
             rows.push(tinted(i18n::NO_MESSAGES, Color::DarkGrey));
@@ -1222,7 +1312,7 @@ pub fn draw_assistant(
         rows.truncate(ih.saturating_sub(1).max(1));
         content = pad_block(rows);
     }
-    draw_screen(out, &content, footers)
+    content
 }
 
 pub fn restore_terminal() {
@@ -1278,6 +1368,102 @@ mod tests {
 
     fn view_of(log: &VecDeque<Line>) -> HomeView<'_> {
         HomeView { log, clock_text: "12:00", hour: 12, timer: None, progress: Vec::new() }
+    }
+
+    fn sample_ask<'a>(text: &'a str, options: &'a [String], expires_in: Option<u64>) -> AssistantMsg<'a> {
+        AssistantMsg { text, from: "claude", kind: Kind::Info, kind_label: "info", options: Some(options), expires_in }
+    }
+
+    #[test]
+    fn build_assistant_fits_any_terminal_size() {
+        let pet = named_pet();
+        let long_text = "claude quer executar: npm run build && rm -rf dist && cp x y ".repeat(5);
+        let options: Vec<String> = vec![
+            "permitir".into(),
+            "Sim, e não pergunte de novo nesta sessão inteira por favor".into(),
+            "negar".into(),
+            "decidir no claude".into(),
+        ];
+        let queue = vec!["ci: build ok".to_string()];
+        for iw in [10, 20, 26, 30, 45, 60, 72, 80, 96, 120] {
+            for ih in [1, 3, 5, 6, 8, 12, 16, 20, 24, 28, 40] {
+                for msg in [
+                    None,
+                    Some(sample_ask(&long_text, &options, Some(59))),
+                    Some(AssistantMsg {
+                        text: "oi",
+                        from: "ci",
+                        kind: Kind::Success,
+                        kind_label: "sucesso",
+                        options: None,
+                        expires_in: None,
+                    }),
+                ] {
+                    let c = build_assistant(&pet, 0, msg.as_ref(), &queue, 1, &view_of(&EMPTY_LOG), iw, ih);
+                    assert!(
+                        c.len() <= ih.saturating_sub(1).max(1),
+                        "overflow at {iw}x{ih}: {} lines",
+                        c.len()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn option_count_never_resizes_the_ask_bubble() {
+        let pet = named_pet();
+        for (iw, ih) in [(96, 24), (80, 18), (50, 16), (26, 8)] {
+            let mut baseline: Option<usize> = None;
+            for n in [1usize, 3, 9] {
+                let options: Vec<String> = (0..n).map(|i| format!("opção {i}")).collect();
+                let msg = sample_ask("posso?", &options, None);
+                let c = build_assistant(&pet, 0, Some(&msg), &[], 0, &view_of(&EMPTY_LOG), iw, ih);
+                match &baseline {
+                    None => baseline = Some(c.len()),
+                    Some(b) => assert_eq!(*b, c.len(), "bubble resized at {iw}x{ih} with {n} options"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn option_rows_are_one_per_slot_and_clip_with_ellipsis() {
+        let opts: Vec<String> = vec!["curta".into(), "uma opção comprida demais para caber".into()];
+        let rows = option_rows(&opts, 16);
+        assert_eq!(rows.len(), OPTION_ROWS);
+        assert!(rows[0].iter().any(|(s, ..)| s.contains("curta")));
+        let second: String = rows[1].iter().map(|(s, ..)| s.clone()).collect();
+        assert!(second.ends_with('…'), "clipped option should end in …: {second:?}");
+        assert_eq!(line_w(&rows[1]), 16);
+        assert_eq!(line_w(&rows[2]), 0); // empty slot stays reserved
+        // options past the last slot pack into it
+        let many: Vec<String> = ["a", "b", "c", "d", "e"].iter().map(|s| s.to_string()).collect();
+        let rows = option_rows(&many, 60);
+        assert_eq!(rows.len(), OPTION_ROWS);
+        let last: String = rows[2].iter().map(|(s, ..)| s.clone()).collect();
+        assert!(last.contains('c') && last.contains('d') && last.contains('e'), "{last:?}");
+    }
+
+    #[test]
+    fn countdown_is_fixed_width_and_turns_red_near_expiry() {
+        let (t59, c59, _) = countdown_seg(59);
+        let (t9, c9, _) = countdown_seg(9);
+        let (t_big, ..) = countdown_seg(5000);
+        assert_eq!(t59.chars().count(), t9.chars().count());
+        assert_eq!(t_big.chars().count(), t59.chars().count());
+        assert_eq!(c59, Some(Color::Yellow));
+        assert_eq!(c9, Some(Color::Red));
+    }
+
+    #[test]
+    fn wrapped_text_marks_truncation_with_ellipsis() {
+        let full = wrapped_text("uma frase curta", 40, 3);
+        assert_eq!(full.len(), 1);
+        let cut = wrapped_text("muitas palavras que não cabem em uma linha só de jeito nenhum", 12, 2);
+        assert_eq!(cut.len(), 2);
+        let last: String = cut[1].iter().map(|(s, ..)| s.clone()).collect();
+        assert!(last.ends_with('…'), "{last:?}");
     }
 
     // Every joined line must have the SAME width: draw_screen centers lines

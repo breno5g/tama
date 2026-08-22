@@ -34,6 +34,23 @@ fn flag(rest: &[String], name: &str) -> Option<String> {
     rest.iter().position(|a| a == name).and_then(|i| rest.get(i + 1)).cloned()
 }
 
+// Every occurrence of a repeatable flag, in order.
+fn flags(rest: &[String], name: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < rest.len() {
+        if rest[i] == name {
+            if let Some(v) = rest.get(i + 1) {
+                out.push(v.clone());
+            }
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
 fn positional(rest: &[String]) -> Option<String> {
     let mut i = 0;
     while i < rest.len() {
@@ -76,15 +93,48 @@ fn say(rest: &[String]) -> i32 {
     send(say_line(&text, &kind, &from))
 }
 
+// Options travel as one JSON string with a literal \n between them: a single
+// --opcoes keeps the comma-split shorthand, repeated flags are literal (so an
+// option may contain commas).
+fn ask_options(opts: &[String]) -> String {
+    match opts {
+        [] => "sim\nnão".into(),
+        [one] => one.split(',').map(str::trim).collect::<Vec<_>>().join("\n"),
+        many => many.join("\n"),
+    }
+}
+
+fn find_answer(content: &str, id: &str) -> Option<String> {
+    for line in content.lines() {
+        let Some(fields) = json_fields(line) else { continue };
+        let get = |k: &str| fields.iter().find(|(key, _)| key == k).map(|(_, v)| v.as_str());
+        if get("id") == Some(id) {
+            return Some(get("resposta").unwrap_or_default().to_string());
+        }
+    }
+    None
+}
+
 fn ask(rest: &[String]) -> i32 {
     let Some(text) = positional(rest) else { return usage(i18n::CLI_USAGE_ASK) };
-    let options = flag(rest, "--opcoes").unwrap_or_else(|| "sim,não".to_string());
+    let options = ask_options(&flags(rest, "--opcoes"));
     let from = flag(rest, "--de").unwrap_or_default();
     let id = flag(rest, "--id").unwrap_or_else(|| {
         format!("ask-{}-{}", now_epoch(), std::process::id())
     });
+    let deadline = match flag(rest, "--timeout") {
+        Some(t) => match crate::assistant::parse_duration(&t) {
+            Some(secs) => Some(now_epoch() + secs),
+            None => return usage(i18n::CLI_USAGE_ASK),
+        },
+        None => None,
+    };
+    let expira = deadline.map(|d| format!(",\"expira\":{d}")).unwrap_or_default();
+    // Answers appended before we send can't be ours: remember the file length
+    // (always a line boundary) and scan only past it.
+    let offset = fs::metadata(output_path()).map(|m| m.len() as usize).unwrap_or(0);
     let code = send(format!(
-        "{{\"pergunta\":\"{}\",\"opcoes\":\"{}\",\"id\":\"{}\",\"de\":\"{}\"}}\n",
+        "{{\"pergunta\":\"{}\",\"opcoes\":\"{}\",\"id\":\"{}\",\"de\":\"{}\"{expira}}}\n",
         json_escape(&text),
         json_escape(&options),
         json_escape(&id),
@@ -96,14 +146,24 @@ fn ask(rest: &[String]) -> i32 {
     // Block until the app appends our answer line to the output file.
     loop {
         if let Ok(content) = fs::read_to_string(output_path()) {
-            for line in content.lines() {
-                let Some(fields) = json_fields(line) else { continue };
-                let get = |k: &str| fields.iter().find(|(key, _)| key == k).map(|(_, v)| v.as_str());
-                if get("id") == Some(&id) {
-                    println!("{}", get("resposta").unwrap_or_default());
-                    return 0;
-                }
+            // A shorter file means the app restarted and truncated it: rescan all.
+            let tail = content.get(offset..).unwrap_or(&content);
+            if let Some(answer) = find_answer(tail, &id) {
+                println!("{answer}");
+                return 0;
             }
+        }
+        if deadline.is_some_and(|d| now_epoch() >= d) {
+            return match flag(rest, "--padrao") {
+                Some(default) => {
+                    println!("{default}");
+                    0
+                }
+                None => {
+                    eprintln!("{}", i18n::CLI_ASK_TIMEOUT);
+                    124
+                }
+            };
         }
         std::thread::sleep(ASK_POLL);
     }
@@ -203,6 +263,30 @@ mod tests {
         assert_eq!(flag(&rest, "--de"), Some("ci".to_string()));
         assert_eq!(flag(&rest, "--tipo"), Some("sucesso".to_string()));
         assert_eq!(flag(&rest, "--em"), None);
+    }
+
+    #[test]
+    fn flags_collects_every_occurrence() {
+        let rest = v(&["ok?", "--opcoes", "permitir", "--de", "claude", "--opcoes", "negar, talvez"]);
+        assert_eq!(flags(&rest, "--opcoes"), v(&["permitir", "negar, talvez"]));
+        assert_eq!(flags(&rest, "--em"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn ask_options_single_flag_splits_commas_repeated_flags_are_literal() {
+        assert_eq!(ask_options(&[]), "sim\nnão");
+        assert_eq!(ask_options(&v(&["a, b,c"])), "a\nb\nc");
+        assert_eq!(ask_options(&v(&["permitir", "Sim, e não pergunte de novo"])), "permitir\nSim, e não pergunte de novo");
+    }
+
+    #[test]
+    fn find_answer_matches_id_and_skips_garbage() {
+        let content = "lixo\n{\"id\":\"outro\",\"resposta\":\"não\"}\n{\"id\":\"a-1\",\"resposta\":\"sim\"}\n";
+        assert_eq!(find_answer(content, "a-1"), Some("sim".to_string()));
+        assert_eq!(find_answer(content, "a-2"), None);
+        // scanning only the tail hides answers written before the offset
+        let offset = content.find("{\"id\":\"a-1\"").unwrap();
+        assert_eq!(find_answer(&content[offset..], "outro"), None);
     }
 
     #[test]

@@ -32,7 +32,7 @@ impl Kind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Msg {
     Say { text: String, from: String, kind: Kind },
-    Ask { text: String, options: Vec<String>, id: String, from: String },
+    Ask { text: String, options: Vec<String>, id: String, from: String, expires: Option<u64> },
     Action(String),
     Progress { from: String, pct: u8 },
     Reminder { text: String, at: u64 },
@@ -58,7 +58,12 @@ pub fn json_fields(line: &str) -> Option<Vec<(String, String)>> {
     for c in inner.chars() {
         if in_str {
             if esc {
-                token.push(c);
+                token.push(match c {
+                    'n' => '\n',
+                    't' => '\t',
+                    'r' => '\r',
+                    c => c,
+                });
                 esc = false;
             } else if c == '\\' {
                 esc = true;
@@ -126,13 +131,14 @@ pub fn parse_line(line: &str, now: u64) -> Option<Msg> {
     }
     if let Some(text) = get("pergunta") {
         let options: Vec<String> = get("opcoes")
-            .unwrap_or_else(|| "sim,não".to_string())
-            .split(',')
+            .unwrap_or_else(|| "sim\nnão".to_string())
+            .split('\n')
             .map(|o| o.trim().to_string())
             .filter(|o| !o.is_empty())
             .collect();
         let id = get("id").unwrap_or_else(|| format!("ask-{now}"));
-        return Some(Msg::Ask { text, options: if options.is_empty() { vec!["sim".into(), "não".into()] } else { options }, id, from });
+        let expires = get("expira").and_then(|e| e.parse().ok());
+        return Some(Msg::Ask { text, options: if options.is_empty() { vec!["sim".into(), "não".into()] } else { options }, id, from, expires });
     }
     if let Some(a) = get("acao") {
         return Some(Msg::Action(a));
@@ -157,7 +163,11 @@ pub fn parse_line(line: &str, now: u64) -> Option<Msg> {
 }
 
 pub fn json_escape(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\t', "\\t")
+        .replace('\r', "\\r")
 }
 
 pub fn answer_line(id: &str, answer: &str) -> String {
@@ -223,12 +233,13 @@ mod tests {
             Some(Msg::Say { text: "oi".into(), from: "ci".into(), kind: Kind::Error })
         );
         assert_eq!(
-            parse_line(r#"{"pergunta":"subir?","opcoes":"sim,não","id":"rel-1"}"#, now),
+            parse_line(r#"{"pergunta":"subir?","opcoes":"sim\nnão","id":"rel-1"}"#, now),
             Some(Msg::Ask {
                 text: "subir?".into(),
                 options: vec!["sim".into(), "não".into()],
                 id: "rel-1".into(),
-                from: String::new()
+                from: String::new(),
+                expires: None
             })
         );
         assert_eq!(parse_line(r#"{"acao":"comemorar"}"#, now), Some(Msg::Action("comemorar".into())));
@@ -258,11 +269,35 @@ mod tests {
 
     #[test]
     fn ask_defaults_options_and_id() {
-        let Some(Msg::Ask { options, id, .. }) = parse_line(r#"{"pergunta":"ok?"}"#, 7) else {
+        let Some(Msg::Ask { options, id, expires, .. }) = parse_line(r#"{"pergunta":"ok?"}"#, 7) else {
             panic!("expected Ask");
         };
         assert_eq!(options, vec!["sim".to_string(), "não".to_string()]);
         assert_eq!(id, "ask-7");
+        assert_eq!(expires, None);
+    }
+
+    #[test]
+    fn escape_round_trips_newlines_tabs_quotes_and_backslashes() {
+        let text = "rodar:\n\tnpm test \"tudo\" \\o/\r";
+        let line = format!("{{\"fala\":\"{}\"}}", json_escape(text));
+        let fields = json_fields(&line).unwrap();
+        assert_eq!(fields[0], ("fala".to_string(), text.to_string()));
+    }
+
+    #[test]
+    fn ask_options_may_contain_commas_and_expira_is_parsed() {
+        let line = r#"{"pergunta":"ok?","opcoes":"Sim, e não pergunte de novo\nnão","expira":1500}"#;
+        let Some(Msg::Ask { options, expires, .. }) = parse_line(line, 1000) else {
+            panic!("expected Ask");
+        };
+        assert_eq!(options, vec!["Sim, e não pergunte de novo".to_string(), "não".to_string()]);
+        assert_eq!(expires, Some(1500));
+        // expira que não é número → ignorada, não derruba a mensagem
+        let Some(Msg::Ask { expires, .. }) = parse_line(r#"{"pergunta":"ok?","expira":"x"}"#, 0) else {
+            panic!("expected Ask");
+        };
+        assert_eq!(expires, None);
     }
 
     #[test]

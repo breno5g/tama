@@ -15,6 +15,7 @@ use crate::ui::{self, draw_screen, plain, seg, tinted, Clock, HomeView, Line};
 const LOG_CAP: usize = 12;
 const SAY_SECS: u64 = 8;
 
+#[derive(Clone, Copy)]
 enum Screen {
     Home,
     Actions(usize),
@@ -204,6 +205,28 @@ impl Inbox {
     fn is_empty(&self) -> bool {
         self.current.is_none() && self.queue.is_empty()
     }
+
+    // Drops expired asks WITHOUT writing an answer — the CLI side already gave
+    // up and printed its default; returns the senders for the log.
+    fn purge_expired(&mut self, now: u64) -> Vec<String> {
+        let expired = |m: &Msg| matches!(m, Msg::Ask { expires: Some(e), .. } if *e <= now);
+        let mut froms = Vec::new();
+        if self.current.as_ref().is_some_and(|(m, _)| expired(m)) {
+            if let Some((Msg::Ask { from, .. }, _)) = self.current.take() {
+                froms.push(from);
+            }
+        }
+        self.queue.retain(|m| {
+            if expired(m) {
+                if let Msg::Ask { from, .. } = m {
+                    froms.push(from.clone());
+                }
+                return false;
+            }
+            true
+        });
+        froms
+    }
 }
 
 fn do_play(pet: &mut Pet, log: &mut VecDeque<Line>, time: &str) -> io::Result<()> {
@@ -354,6 +377,9 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
     }
 
     let rx = assistant::spawn_reader();
+    // Stale answers would satisfy the wrong ask; a fresh session starts clean.
+    // ponytail: races a CLI still polling from a previous session; accepted
+    let _ = std::fs::write(crate::state::output_path(), "");
     let mut inbox = Inbox::new();
     let mut progress: Vec<(String, u8)> = Vec::new();
     let mut reminders: Vec<(String, u64)> = Vec::new();
@@ -361,6 +387,8 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
     let mut pomo: Option<Pomo> = None;
 
     let mut screen = Screen::Home;
+    // where an Ask yanked the user from; restored when the inbox drains
+    let mut prev_screen = Screen::Home;
     let mut frame = 0usize;
     let mut ticks_250ms = 0u64;
     let mut prev_mood = pet.mood();
@@ -388,7 +416,9 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                 }
                 Msg::Ask { .. } => {
                     inbox.queue.push_front(msg); // questions jump the queue
-                    if matches!(screen, Screen::Home) {
+                    // a question blocks its sender: interrupt from ANY screen
+                    if !matches!(screen, Screen::Assistant) {
+                        prev_screen = screen;
                         screen = Screen::Assistant;
                     }
                 }
@@ -489,6 +519,12 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
             pet.sleeping = true;
         }
 
+        // Expired asks vanish everywhere, even while another screen is up.
+        for from in inbox.purge_expired(now) {
+            let sender = if from.is_empty() { i18n::UNKNOWN_SENDER.to_string() } else { from };
+            push_log(&mut log, &time, i18n::msg_ask_expired(&sender), None);
+        }
+
         // A spoken message expires on its own; questions wait for an answer.
         if matches!(screen, Screen::Assistant) {
             if let Some((Msg::Say { .. }, at)) = &inbox.current {
@@ -498,7 +534,8 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
             }
             inbox.promote();
             if inbox.is_empty() {
-                screen = Screen::Home;
+                screen = prev_screen;
+                prev_screen = Screen::Home;
             }
         }
 
@@ -548,13 +585,15 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                         kind: *kind,
                         kind_label: i18n::kind_label(*kind),
                         options: None,
+                        expires_in: None,
                     }),
-                    Msg::Ask { text, from, options, .. } => Some(ui::AssistantMsg {
+                    Msg::Ask { text, from, options, expires, .. } => Some(ui::AssistantMsg {
                         text,
                         from,
                         kind: Kind::Info,
                         kind_label: i18n::kind_label(Kind::Info),
                         options: Some(options),
+                        expires_in: expires.map(|e| e.saturating_sub(now)),
                     }),
                     _ => None,
                 });
@@ -709,10 +748,14 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                         inbox.clear();
                         return Ok(());
                     }
-                    KeyCode::Char('a') => screen = Screen::Home,
+                    KeyCode::Char('a') => {
+                        screen = prev_screen;
+                        prev_screen = Screen::Home;
+                    }
                     KeyCode::Char('x') => {
                         inbox.clear();
-                        screen = Screen::Home;
+                        screen = prev_screen;
+                        prev_screen = Screen::Home;
                     }
                     KeyCode::Enter => {
                         if matches!(inbox.current, Some((Msg::Say { .. }, _))) {
@@ -864,9 +907,35 @@ mod tests {
     fn questions_jump_the_queue_and_says_expire() {
         let mut inbox = Inbox::new();
         inbox.queue.push_back(Msg::Say { text: "s".into(), from: String::new(), kind: Kind::Info });
-        inbox.queue.push_front(Msg::Ask { text: "q".into(), options: vec!["sim".into()], id: "i".into(), from: String::new() });
+        inbox.queue.push_front(Msg::Ask {
+            text: "q".into(),
+            options: vec!["sim".into()],
+            id: "i".into(),
+            from: String::new(),
+            expires: None,
+        });
         inbox.promote();
         assert!(matches!(inbox.current, Some((Msg::Ask { .. }, _))));
+    }
+
+    #[test]
+    fn purge_expired_drops_only_expired_asks_and_reports_senders() {
+        let ask = |id: &str, from: &str, expires: Option<u64>| Msg::Ask {
+            text: "q".into(),
+            options: vec!["sim".into()],
+            id: id.into(),
+            from: from.into(),
+            expires,
+        };
+        let mut inbox = Inbox::new();
+        inbox.queue.push_back(ask("a", "claude", Some(100)));
+        inbox.queue.push_back(ask("b", "ci", None));
+        inbox.queue.push_back(ask("c", "outro", Some(500)));
+        inbox.promote(); // "a" becomes current
+        assert_eq!(inbox.purge_expired(100), vec!["claude".to_string()]);
+        assert!(inbox.current.is_none());
+        assert_eq!(inbox.queue.len(), 2); // "b" (sem expira) e "c" (ainda viva) ficam
+        assert!(inbox.purge_expired(100).is_empty());
     }
 
     #[test]

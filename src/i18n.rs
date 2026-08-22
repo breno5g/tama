@@ -125,7 +125,6 @@ pub const TIMER_LABEL: &str = "timer";
 pub const TYPE_LABEL: &str = "tipo";
 pub const FROM_LABEL: &str = "de";
 pub const ASKS_VERB: &str = "pergunta";
-pub const ESC_IGNORE: &str = "ignorar";
 
 pub fn kind_label(k: crate::assistant::Kind) -> &'static str {
     match k {
@@ -148,6 +147,10 @@ pub fn msg_progress_done(from: &str) -> String {
 pub fn msg_answered(text: &str, answer: &str) -> String {
     format!("você respondeu \"{answer}\" para: {text}")
 }
+pub fn msg_ask_expired(from: &str) -> String {
+    format!("pergunta de {from} expirou")
+}
+pub const EXPIRES_LABEL: &str = "expira";
 pub fn msg_celebrate(name: &str) -> String {
     format!("\\o/ {name} comemorou!")
 }
@@ -189,7 +192,9 @@ pub const FOOTER_POMO_ACTIVE: [&str; 2] = ["[enter] parar  [esc] voltar", "enter
 pub const CLI_NOT_RUNNING: &str = "tama não está rodando — abra o app primeiro";
 pub const CLI_PIPE_ERROR: &str = "não consegui escrever no pipe do tama";
 pub const CLI_USAGE_SAY: &str = "uso: tama say \"texto\" [--de origem] [--tipo info|sucesso|alerta|erro]";
-pub const CLI_USAGE_ASK: &str = "uso: tama ask \"pergunta\" [--opcoes a,b,c] [--de origem] [--id id]";
+pub const CLI_USAGE_ASK: &str =
+    "uso: tama ask \"pergunta\" [--opcoes a,b,c | --opcoes a --opcoes b ...] [--de origem] [--id id] [--timeout 60s] [--padrao resposta]";
+pub const CLI_ASK_TIMEOUT: &str = "sem resposta do tama (timeout)";
 pub const CLI_USAGE_REMIND: &str = "uso: tama lembrar \"texto\" --em 10m";
 pub const CLI_USAGE_TIMER: &str = "uso: tama timer 25m";
 pub const CLI_USAGE_DO: &str = "uso: tama do comemorar|dormir|acordar|alimentar";
