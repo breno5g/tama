@@ -132,10 +132,6 @@ fn panel(title: &str, body: &[Line], w: usize) -> Vec<Line> {
     boxed(Some((title, Color::DarkGrey)), Color::DarkGrey, body, w)
 }
 
-fn panel_titled(title: &str, title_color: Color, body: &[Line], w: usize) -> Vec<Line> {
-    boxed(Some((title, title_color)), Color::DarkGrey, body, w)
-}
-
 fn boxed(title: Option<(&str, Color)>, border_color: Color, body: &[Line], w: usize) -> Vec<Line> {
     let border = Some(border_color);
     let inner = w.saturating_sub(4);
@@ -739,10 +735,11 @@ pub fn draw_actions(
 }
 
 // The design's menu: a bordered modal titled "cardápio", ▸ marking the
-// selected row, an icon per food, effects colored by sign.
-pub fn draw_menu(out: &mut impl Write, sel: usize) -> io::Result<()> {
-    let (cols, _) = terminal::size()?;
-    let iw = cols.saturating_sub(2) as usize;
+// selected row, an icon per food, effects colored by sign — floating over
+// the dimmed home screen like every modal.
+pub fn draw_menu(out: &mut impl Write, pet: &Pet, frame: usize, view: &HomeView, sel: usize) -> io::Result<()> {
+    let (cols, rows) = terminal::size()?;
+    let (iw, ih) = (cols.saturating_sub(2) as usize, rows.saturating_sub(2) as usize);
     let w = iw.min(60);
     let mut body: Vec<Line> = Vec::new();
     for (i, food) in FOODS.iter().enumerate() {
@@ -755,19 +752,30 @@ pub fn draw_menu(out: &mut impl Write, sel: usize) -> io::Result<()> {
         l.extend(food_effects(food));
         body.push(l);
     }
-    let content = panel_titled(i18n::MENU_TITLE, Color::Magenta, &body, w);
+    let modal = boxed(Some((i18n::MENU_TITLE, Color::Magenta)), Color::Magenta, &body, w);
+    let content = overlay(dim(&build_home(pet, frame, view, iw, ih)), &modal);
     draw_screen(out, &content, &i18n::FOOTER_MENU)
 }
 
-pub fn draw_game(out: &mut impl Write, pet: &Pet, frame: usize) -> io::Result<()> {
-    let (_, rows) = terminal::size()?;
-    let ih = rows.saturating_sub(2) as usize;
-    let mut content: Vec<Line> = vec![tinted(i18n::GAME_TITLE, Color::Magenta), Vec::new()];
-    if ih >= 14 {
-        content.extend(render_art(pet.species, Mood::Happy, frame, ArtSize::Small).iter().map(|l| plain(l.clone())));
-        content.push(Vec::new());
-    }
-    content.push(plain(i18n::msg_game_waiting(&pet.name)));
+pub fn draw_game(out: &mut impl Write, pet: &Pet, frame: usize, view: &HomeView) -> io::Result<()> {
+    let (cols, rows) = terminal::size()?;
+    let (iw, ih) = (cols.saturating_sub(2) as usize, rows.saturating_sub(2) as usize);
+    let waiting = i18n::msg_game_waiting(&pet.name);
+    let w = iw.min(waiting.chars().count().max(30) + 6);
+    let body: Vec<Line> = vec![
+        plain(waiting),
+        Vec::new(),
+        vec![
+            chip("1"),
+            seg(format!(" {}   ", i18n::HANDS[0]), None),
+            chip("2"),
+            seg(format!(" {}   ", i18n::HANDS[1]), None),
+            chip("3"),
+            seg(format!(" {}", i18n::HANDS[2]), None),
+        ],
+    ];
+    let modal = boxed(Some((i18n::GAME_TITLE, Color::Magenta)), Color::Magenta, &body, w);
+    let content = overlay(dim(&build_home(pet, frame, view, iw, ih)), &modal);
     draw_screen(out, &content, &i18n::FOOTER_GAME)
 }
 

@@ -425,8 +425,8 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                 let items: Vec<usize> = actions_for(pet.zen).iter().map(|a| *a as usize).collect();
                 ui::draw_actions(out, pet, frame, &view, &items, *sel)?;
             }
-            Screen::Menu(sel) => ui::draw_menu(out, *sel)?,
-            Screen::Game => ui::draw_game(out, pet, frame)?,
+            Screen::Menu(sel) => ui::draw_menu(out, pet, frame, &view, *sel)?,
+            Screen::Game => ui::draw_game(out, pet, frame, &view)?,
             Screen::Assistant => {
                 let current = inbox.current.as_ref().map(|(m, _)| m);
                 let msg = current.and_then(|m| match m {
