@@ -10,11 +10,29 @@ tarefas longas e dispara lembretes e timers.
 ```bash
 cargo run              # abre o pet (primeira vez: escolha a espécie e o nome)
 cargo run -- --gallery # imprime a arte de todos os pets e sai
-cargo test             # 59 testes
+cargo test             # 110 testes
 ```
 
 Requer um terminal com suporte a 256 cores. Para ter o binário no PATH:
 `cargo install --path .`.
+
+### Idioma
+
+A interface vem em **português** e **inglês**. A escolha sai de `TAMA_LANG`, ou
+de `LC_ALL`/`LANG` se ele não estiver setado; qualquer coisa que não comece com
+`en` fica em pt-BR:
+
+```bash
+tama                   # segue o LANG do sistema
+TAMA_LANG=en tama      # inglês
+TAMA_LANG=pt tama      # português, mesmo num sistema em inglês
+```
+
+A API não muda de idioma: flags, chaves do JSON e valores de `command` são
+sempre em inglês. Só o que aparece na tela é traduzido — com uma exceção: uma
+pergunta **sem** `actions` ganha as opções padrão do idioma ativo (`sim/não` ou
+`yes/no`), e é isso que o `tama ask` imprime. Script que compara a resposta deve
+passar `--options` explícito.
 
 ## O pet
 
@@ -67,8 +85,8 @@ para cima), `alt+enter` força uma quebra, `enter` envia e `esc` volta para a
 lista. Cabem 1000 caracteres, o bastante para responder um LLM com um
 parágrafo inteiro. É assim que um LLM recebe prosa de volta,
 e não só uma das opções que ele imaginou.
-A API — comandos, flags, chaves e valores do protocolo — é em inglês; só o
-que aparece na tela segue em português. Mensagem chegando abre o modo
+A API — comandos, flags, chaves e valores do protocolo — é sempre em inglês;
+só o que aparece na tela segue o idioma ativo. Mensagem chegando abre o modo
 assistente sozinha; perguntas furam a fila **e interrompem qualquer tela**
 (pomodoro, jogo, menu — ao responder você volta para onde estava); falas
 expiram em ~8s (ou `enter`).
@@ -270,17 +288,30 @@ tama watch --from deploy ./deploy.sh
 
 ## Código
 
+Nenhum arquivo passa de 300 linhas; cada um tem uma responsabilidade que cabe
+no nome.
+
 | Módulo | Responsabilidade |
 |---|---|
 | `pet.rs` | regras do bicho: stats, decay, XP, comidas, humor |
-| `species.rs` | espécies e renderização dos sprites |
-| `state.rs` | persistência |
-| `ui.rs` | renderização: painéis, tiers responsivos, telas |
-| `app.rs` | loop principal, telas interativas, fila do assistente |
-| `assistant.rs` | contrato das mensagens: parser JSON flat, leitor do pipe, respostas |
+| `state.rs` | persistência (save do pet e schedule, escrita atômica) |
 | `http.rs` | servidor HTTP mínimo: POST → canal do app, long-poll de perguntas |
-| `cli.rs` | subcomandos `say/ask/remind/timer/do/watch/pomodoro` |
-| `i18n.rs` | todo texto visível (pt-BR; outro idioma entra só aqui) |
+| `species/` | `mod` espécies e render dos sprites · `art` só os dados dos sprites |
+| `assistant/` | `mod` schema das mensagens · `json` parser JSON flat · `answer` respostas |
+| `cli/` | `mod` dispatch e parsing de flags · `commands` um fn por subcomando |
+| `i18n/` | textos: `strings` o struct · `pt_br`/`en` os locales · `msg` interpolação |
+| `ui/` | renderização, um arquivo por tela ou primitiva (ver abaixo) |
+| `app/` | o loop: `App` guarda o estado, cada fase do frame é um método |
+
+`ui/` separa as primitivas das telas: `line` (segmentos e larguras em chars),
+`panel` (caixas e overlay), `screen` (moldura e footer), `stats`, `header`,
+`bigtime` (dígitos LCD) e `expression` (cara por tipo de mensagem) embaixo;
+`home`, `modals`, `pomo`, `assistant`, `bubble` e `answer` em cima. Só o que
+`app` usa sai pelo `pub use` do `ui/mod.rs`.
+
+`app/` divide o loop por fase: `messages` (mensagens que chegam e o que vence),
+`keys` + `keys_assistant` (teclado), `render` (monta a view e desenha), `inbox`
+(fila e notificação), `pomo`, `actions`, `screen` e `setup` (primeira execução).
 
 Sem dependências além de `crossterm`. O renderer nunca limpa a tela (repinta
 todas as células por frame, num flush único com synchronized update), então

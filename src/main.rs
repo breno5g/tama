@@ -21,11 +21,11 @@ fn gallery() {
         for line in render_art(s, Mood::Happy, 0, ArtSize::Large) {
             println!("  {line}");
         }
-        println!("\n  {}", i18n::GALLERY_SMALL);
+        println!("\n  {}", i18n::t().gallery_small);
         for line in render_art(s, Mood::Happy, 0, ArtSize::Small) {
             println!("  {line}");
         }
-        println!("\n  {} {}", i18n::GALLERY_MINI, render_tiny(s, Mood::Happy, 0));
+        println!("\n  {} {}", i18n::t().gallery_mini, render_tiny(s, Mood::Happy, 0));
     }
 }
 

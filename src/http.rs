@@ -88,11 +88,11 @@ fn post(body: String, tx: &Sender<String>) -> String {
     let now = assistant::now_epoch();
     let msgs = assistant::parse_msgs(&body, now);
     if msgs.is_empty() {
-        return response("400 Bad Request", &json_err(i18n::HTTP_ERR_BAD));
+        return response("400 Bad Request", &json_err(i18n::t().http_err_bad));
     }
     if !msgs.iter().any(|m| matches!(m, Msg::Ask { .. })) {
         if tx.send(body).is_err() {
-            return response("500 Internal Server Error", &json_err(i18n::HTTP_ERR_BAD));
+            return response("500 Internal Server Error", &json_err(i18n::t().http_err_bad));
         }
         return response("200 OK", "{\"ok\":true}");
     }
@@ -123,7 +123,7 @@ fn post(body: String, tx: &Sender<String>) -> String {
     };
     let offset = std::fs::metadata(crate::state::output_path()).map(|m| m.len() as usize).unwrap_or(0);
     if tx.send(line).is_err() {
-        return response("500 Internal Server Error", &json_err(i18n::HTTP_ERR_BAD));
+        return response("500 Internal Server Error", &json_err(i18n::t().http_err_bad));
     }
     match assistant::wait_answer(&id, offset, Some(expires)) {
         Some(answer) => {
@@ -138,14 +138,14 @@ fn handle(mut stream: TcpStream, tx: &Sender<String>) {
     let Ok(clone) = stream.try_clone() else { return };
     let mut reader = BufReader::new(clone);
     let reply = match parse_request(&mut reader) {
-        None => response("400 Bad Request", &json_err(i18n::HTTP_ERR_BAD)),
+        None => response("400 Bad Request", &json_err(i18n::t().http_err_bad)),
         Some(req) => {
             let authorized = match std::env::var("TAMA_TOKEN") {
                 Ok(token) => req.auth.as_deref() == Some(&format!("Bearer {token}")),
                 Err(_) => true, // sem TAMA_TOKEN o endpoint é aberto (LAN doméstica)
             };
             if !authorized {
-                response("401 Unauthorized", &json_err(i18n::HTTP_ERR_TOKEN))
+                response("401 Unauthorized", &json_err(i18n::t().http_err_token))
             } else {
                 match (req.method.as_str(), req.path.as_str()) {
                     ("GET", "/") => {
@@ -153,7 +153,7 @@ fn handle(mut stream: TcpStream, tx: &Sender<String>) {
                         response("200 OK", &format!("{{\"ok\":true,\"pet\":\"{}\"}}", assistant::json_escape(&pet)))
                     }
                     ("POST", "/") => post(req.body, tx),
-                    _ => response("404 Not Found", &json_err(i18n::HTTP_ERR_NOT_FOUND)),
+                    _ => response("404 Not Found", &json_err(i18n::t().http_err_not_found)),
                 }
             }
         }
@@ -176,7 +176,7 @@ pub fn serve(listener: TcpListener, tx: Sender<String>) {
 pub fn spawn_http(tx: Sender<String>) -> String {
     let addr = std::env::var("TAMA_HTTP").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
     if addr == "off" {
-        return i18n::MSG_HTTP_OFF.to_string();
+        return i18n::t().msg_http_off.to_string();
     }
     match TcpListener::bind(&addr) {
         Ok(listener) => {

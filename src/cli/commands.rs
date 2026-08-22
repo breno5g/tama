@@ -1,98 +1,15 @@
-//! CLI subcommands for external integration: they only write JSON lines to
-//! the input pipe (`tama ask` additionally waits for its answer line in the
-//! output file and prints it to stdout). Flags and wire keys are English;
-//! every printed string stays in i18n.
+//! One function per subcommand. Each builds a JSON line and hands it to
+//! `send`; `ask` additionally blocks on the answer and prints it to stdout.
 
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::sync::mpsc::channel;
-use std::time::Duration;
+use std::fs;
 
-use crate::assistant::{json_escape, now_epoch, wait_answer};
+use super::{flag, flags, positional, send, usage};
+use crate::assistant::{json_escape, now_epoch, parse_duration, wait_answer};
 use crate::i18n;
-use crate::state::{input_path, output_path};
+use crate::state::output_path;
 
-const PIPE_OPEN_TIMEOUT: Duration = Duration::from_secs(2);
-
-// Returns Some(exit code) when args named a subcommand; None → run the TUI.
-pub fn run(args: &[String]) -> Option<i32> {
-    let cmd = args.first()?.as_str();
-    let rest = &args[1..];
-    match cmd {
-        "say" => Some(say(rest)),
-        "ask" => Some(ask(rest)),
-        "remind" => Some(remind(rest)),
-        "timer" => Some(timer(rest)),
-        "do" => Some(action(rest)),
-        "watch" => Some(watch(rest)),
-        "pomodoro" => Some(pomodoro(rest)),
-        _ => None,
-    }
-}
-
-fn flag(rest: &[String], name: &str) -> Option<String> {
-    rest.iter().position(|a| a == name).and_then(|i| rest.get(i + 1)).cloned()
-}
-
-// Every occurrence of a repeatable flag, in order.
-fn flags(rest: &[String], name: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < rest.len() {
-        if rest[i] == name {
-            if let Some(v) = rest.get(i + 1) {
-                out.push(v.clone());
-            }
-            i += 2;
-        } else {
-            i += 1;
-        }
-    }
-    out
-}
-
-// Flags that carry no value — skipping two args past them would eat the text.
-const BOOL_FLAGS: [&str; 1] = ["--input"];
-
-fn positional(rest: &[String]) -> Option<String> {
-    let mut i = 0;
-    while i < rest.len() {
-        if BOOL_FLAGS.contains(&rest[i].as_str()) {
-            i += 1;
-        } else if rest[i].starts_with("--") {
-            i += 2;
-        } else {
-            return Some(rest[i].clone());
-        }
-    }
-    None
-}
-
-fn usage(msg: &str) -> i32 {
-    eprintln!("{msg}");
-    2
-}
-
-// A FIFO write blocks forever when no reader (the app) is attached, so the
-// write runs in a thread raced against a timeout.
-fn send(line: String) -> i32 {
-    let (tx, rx) = channel();
-    std::thread::spawn(move || {
-        let result = OpenOptions::new()
-            .write(true)
-            .open(input_path())
-            .and_then(|mut f| f.write_all(line.as_bytes()));
-        let _ = tx.send(result);
-    });
-    match rx.recv_timeout(PIPE_OPEN_TIMEOUT) {
-        Ok(Ok(())) => 0,
-        Ok(Err(e)) => usage(&format!("{}: {e}", i18n::CLI_PIPE_ERROR)),
-        Err(_) => usage(i18n::CLI_NOT_RUNNING),
-    }
-}
-
-fn say(rest: &[String]) -> i32 {
-    let Some(text) = positional(rest) else { return usage(i18n::CLI_USAGE_SAY) };
+pub(super) fn say(rest: &[String]) -> i32 {
+    let Some(text) = positional(rest) else { return usage(i18n::t().cli_usage_say) };
     let from = flag(rest, "--from").unwrap_or_default();
     let kind = flag(rest, "--type").unwrap_or_else(|| "info".to_string());
     send(say_line(&text, &kind, &from))
@@ -103,14 +20,14 @@ fn say(rest: &[String]) -> i32 {
 // an option may contain commas).
 fn ask_options(opts: &[String]) -> String {
     match opts {
-        [] => "sim\nnão".into(),
+        [] => format!("{}\n{}", i18n::t().default_yes, i18n::t().default_no),
         [one] => one.split(',').map(str::trim).collect::<Vec<_>>().join("\n"),
         many => many.join("\n"),
     }
 }
 
-fn ask(rest: &[String]) -> i32 {
-    let Some(text) = positional(rest) else { return usage(i18n::CLI_USAGE_ASK) };
+pub(super) fn ask(rest: &[String]) -> i32 {
+    let Some(text) = positional(rest) else { return usage(i18n::t().cli_usage_ask) };
     // --input: free text is a valid answer; alone, the only one
     let typed = rest.iter().any(|a| a == "--input");
     let picks = flags(rest, "--options");
@@ -120,9 +37,9 @@ fn ask(rest: &[String]) -> i32 {
         format!("ask-{}-{}", now_epoch(), std::process::id())
     });
     let deadline = match flag(rest, "--timeout") {
-        Some(t) => match crate::assistant::parse_duration(&t) {
+        Some(t) => match parse_duration(&t) {
             Some(secs) => Some(now_epoch() + secs),
-            None => return usage(i18n::CLI_USAGE_ASK),
+            None => return usage(i18n::t().cli_usage_ask),
         },
         None => None,
     };
@@ -153,27 +70,27 @@ fn ask(rest: &[String]) -> i32 {
                 0
             }
             None => {
-                eprintln!("{}", i18n::CLI_ASK_TIMEOUT);
+                eprintln!("{}", i18n::t().cli_ask_timeout);
                 124
             }
         },
     }
 }
 
-fn remind(rest: &[String]) -> i32 {
+pub(super) fn remind(rest: &[String]) -> i32 {
     let (Some(text), Some(dur)) = (positional(rest), flag(rest, "--in")) else {
-        return usage(i18n::CLI_USAGE_REMIND);
+        return usage(i18n::t().cli_usage_remind);
     };
     send(format!("{{\"remind\":\"{}\",\"in\":\"{}\"}}\n", json_escape(&text), json_escape(&dur)))
 }
 
-fn timer(rest: &[String]) -> i32 {
-    let Some(dur) = positional(rest) else { return usage(i18n::CLI_USAGE_TIMER) };
+pub(super) fn timer(rest: &[String]) -> i32 {
+    let Some(dur) = positional(rest) else { return usage(i18n::t().cli_usage_timer) };
     send(format!("{{\"timer\":\"{}\"}}\n", json_escape(&dur)))
 }
 
-fn action(rest: &[String]) -> i32 {
-    let Some(a) = positional(rest) else { return usage(i18n::CLI_USAGE_DO) };
+pub(super) fn action(rest: &[String]) -> i32 {
+    let Some(a) = positional(rest) else { return usage(i18n::t().cli_usage_do) };
     send(format!("{{\"command\":\"{}\"}}\n", json_escape(&a)))
 }
 
@@ -203,8 +120,8 @@ fn say_line(text: &str, kind: &str, from: &str) -> String {
 // starts, success/error by exit code when it ends. The notification is best
 // effort — the command runs (and its exit code is propagated) even when the
 // app is closed.
-fn watch(rest: &[String]) -> i32 {
-    let Some((from, cmd_args)) = watch_parse(rest) else { return usage(i18n::CLI_USAGE_WATCH) };
+pub(super) fn watch(rest: &[String]) -> i32 {
+    let Some((from, cmd_args)) = watch_parse(rest) else { return usage(i18n::t().cli_usage_watch) };
     let cmd = cmd_args.join(" "); // display only
     send(say_line(&i18n::msg_watch_start(&cmd), "info", &from));
     let started = std::time::Instant::now();
@@ -223,14 +140,14 @@ fn watch(rest: &[String]) -> i32 {
     code
 }
 
-fn pomodoro(rest: &[String]) -> i32 {
+pub(super) fn pomodoro(rest: &[String]) -> i32 {
     let work = positional(rest).unwrap_or_else(|| "25m".to_string());
     if work == "off" {
         return send("{\"pomodoro\":\"off\"}\n".to_string());
     }
     let pause = flag(rest, "--break").unwrap_or_else(|| "5m".to_string());
-    if crate::assistant::parse_duration(&work).is_none() || crate::assistant::parse_duration(&pause).is_none() {
-        return usage(i18n::CLI_USAGE_POMODORO);
+    if parse_duration(&work).is_none() || parse_duration(&pause).is_none() {
+        return usage(i18n::t().cli_usage_pomodoro);
     }
     send(format!(
         "{{\"pomodoro\":\"{}\",\"break\":\"{}\"}}\n",
@@ -248,39 +165,10 @@ mod tests {
     }
 
     #[test]
-    fn flags_and_positionals_parse_in_any_order() {
-        let rest = v(&["--from", "ci", "build ok", "--type", "success"]);
-        assert_eq!(positional(&rest), Some("build ok".to_string()));
-        assert_eq!(flag(&rest, "--from"), Some("ci".to_string()));
-        assert_eq!(flag(&rest, "--type"), Some("success".to_string()));
-        assert_eq!(flag(&rest, "--in"), None);
-    }
-
-    #[test]
-    fn valueless_flags_do_not_swallow_the_text() {
-        let rest = v(&["--input", "escreva aí", "--from", "llm"]);
-        assert_eq!(positional(&rest), Some("escreva aí".to_string()));
-        assert_eq!(flag(&rest, "--from"), Some("llm".to_string()));
-    }
-
-    #[test]
-    fn flags_collects_every_occurrence() {
-        let rest = v(&["ok?", "--options", "permitir", "--from", "claude", "--options", "negar, talvez"]);
-        assert_eq!(flags(&rest, "--options"), v(&["permitir", "negar, talvez"]));
-        assert_eq!(flags(&rest, "--in"), Vec::<String>::new());
-    }
-
-    #[test]
     fn ask_options_single_flag_splits_commas_repeated_flags_are_literal() {
-        assert_eq!(ask_options(&[]), "sim\nnão");
+        assert_eq!(ask_options(&[]), format!("{}\n{}", i18n::t().default_yes, i18n::t().default_no));
         assert_eq!(ask_options(&v(&["a, b,c"])), "a\nb\nc");
         assert_eq!(ask_options(&v(&["permitir", "Sim, e não pergunte de novo"])), "permitir\nSim, e não pergunte de novo");
-    }
-
-    #[test]
-    fn unknown_command_falls_through_to_tui() {
-        assert_eq!(run(&v(&["--gallery"])), None);
-        assert_eq!(run(&[]), None);
     }
 
     #[test]
