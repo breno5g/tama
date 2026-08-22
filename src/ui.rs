@@ -636,8 +636,7 @@ pub fn draw_home(out: &mut impl Write, pet: &Pet, frame: usize, view: &HomeView)
     let (cols, rows) = terminal::size()?;
     let (iw, ih) = (cols.saturating_sub(2) as usize, rows.saturating_sub(2) as usize);
     let content = build_home(pet, frame, view, iw, ih);
-    let footers: &[&str] = if pet.zen { &i18n::FOOTER_ZEN } else { &i18n::FOOTER_HOME };
-    draw_screen(out, &content, footers)
+    draw_screen(out, &content, &i18n::FOOTER_HOME)
 }
 
 fn food_effects(food: &crate::pet::Food) -> Line {
@@ -660,6 +659,28 @@ fn food_effects(food: &crate::pet::Food) -> Line {
 // single-width glyph triplets — emoji take two cells and would shear the
 // alignment. Index-aligned with pet::FOODS.
 const FOOD_ICONS: [&str; 4] = [r"\∴/", "<><", "(@)", r"\_/"];
+
+// Index-aligned with app::Action and i18n::ACTION_LABELS.
+pub const ACTION_GLYPHS: [&str; 8] = [r"\∴/", "(o)", "z Z", "oOo", "1v1", "(!)", "-_-", "<=>"];
+
+// The actions overlay from the controls redesign: a numbered modal list.
+pub fn draw_actions(out: &mut impl Write, items: &[usize], sel: usize) -> io::Result<()> {
+    let (cols, _) = terminal::size()?;
+    let iw = cols.saturating_sub(2) as usize;
+    let w = iw.min(38);
+    let mut body: Vec<Line> = Vec::new();
+    for (i, &action) in items.iter().enumerate() {
+        let selected = i == sel;
+        body.push(vec![
+            seg(if selected { "▸ " } else { "  " }, Some(Color::Cyan)),
+            seg(format!("{} ", i + 1), Some(Color::Cyan)),
+            seg(format!("{:<5}", ACTION_GLYPHS[action]), Some(Color::DarkGrey)),
+            seg(i18n::ACTION_LABELS[action], if selected { Some(Color::Cyan) } else { None }),
+        ]);
+    }
+    let content = panel_titled(i18n::ACTIONS_TITLE, Color::Magenta, &body, w);
+    draw_screen(out, &content, &i18n::FOOTER_ACTIONS)
+}
 
 // The design's menu: a bordered modal titled "cardápio", ▸ marking the
 // selected row, an icon per food, effects colored by sign.

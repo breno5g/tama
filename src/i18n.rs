@@ -102,10 +102,15 @@ pub const GALLERY_MINI: &str = "(mini)";
 pub const HANDS: [&str; 3] = ["pedra", "papel", "tesoura"];
 
 pub const FOOTER_HOME: [&str; 3] = [
-    "[f] comer  [p] brincar  [s] dormir  [b] banho  [m] jokenpô  [a] assistente  [z] zen  [c] pet  [q] sair",
-    "f:comer p:brincar s:dormir b:banho m:jogo a:assist z:zen c:pet q:sair",
-    "f p s b m a z c q",
+    "[espaço] ações  [a] assistente  [q] sair",
+    "espaço:ações a:assist q:sair",
+    "esp a q",
 ];
+pub const ACTIONS_TITLE: &str = "ações";
+pub const FOOTER_ACTIONS: [&str; 2] = ["[↑↓] ou número  [enter] usar  [esc] voltar", "↑↓ 1-9 enter esc"];
+// Index-aligned with app::Action and ui::ACTION_GLYPHS.
+pub const ACTION_LABELS: [&str; 8] =
+    ["comer", "brincar", "dormir", "banho", "jokenpô", "assistente", "zen", "trocar pet"];
 pub const FOOTER_ASSISTANT: [&str; 3] = [
     "[enter] próxima da fila  [x] limpar fila  [a] modo pet  [q] sair",
     "enter:próxima x:limpar a:pet q:sair",
@@ -158,11 +163,9 @@ pub const CLI_USAGE_ASK: &str = "uso: tama ask \"pergunta\" [--opcoes a,b,c] [--
 pub const CLI_USAGE_REMIND: &str = "uso: tama lembrar \"texto\" --em 10m";
 pub const CLI_USAGE_TIMER: &str = "uso: tama timer 25m";
 pub const CLI_USAGE_DO: &str = "uso: tama do comemorar|dormir|acordar|alimentar";
-pub const FOOTER_ZEN: [&str; 3] =
-    ["[z] modo normal  [c] trocar pet  [q] sair", "z:normal c:pet q:sair", "z c q"];
 pub const FOOTER_MENU: [&str; 2] = ["[↑↓] escolher  [enter] dar  [esc] voltar", "↑↓ enter esc"];
 pub const FOOTER_GAME: [&str; 2] = ["[1] pedra  [2] papel  [3] tesoura  [esc] voltar", "1 2 3 esc"];
-pub const FOOTER_PICKER: [&str; 2] = ["[←/→] escolher  [enter] confirmar", "←/→  enter"];
+pub const FOOTER_PICKER: [&str; 2] = ["[←↑↓→] navegar  [enter] confirmar  [esc] voltar", "setas · enter · esc"];
 pub const FOOTER_NAME: [&str; 1] = ["[enter] confirmar"];
 
 pub fn msg_played(name: &str) -> String {

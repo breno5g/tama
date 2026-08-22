@@ -35,15 +35,14 @@ Requer um terminal com suporte a 256 cores. Para ter o binário no PATH:
 
 | Tecla | Ação |
 |---|---|
-| `f` | cardápio (↑↓/`jk` escolhe, `enter` dá, `esc` volta) |
-| `p` | brincar |
-| `s` | dormir / acordar |
-| `b` | banho |
-| `m` | jokenpô (`1` pedra, `2` papel, `3` tesoura) |
+| `espaço` | menu de ações (↑↓ ou número, `enter` usa, `esc` volta) |
 | `a` | alterna modo pet ↔ modo assistente |
-| `z` | modo zen |
-| `c` | trocar de pet |
 | `q` | sair |
+
+O menu reúne comer, brincar, dormir, banho, jokenpô, assistente, zen e trocar
+de pet. Os atalhos diretos continuam funcionando escondidos para quem já
+decorou: `f p s b m z c`. O seletor de pet é uma grade com as 10 espécies
+visíveis (setas navegam, `enter` confirma, `esc` cancela) e prévia animada.
 
 ### Layout responsivo
 

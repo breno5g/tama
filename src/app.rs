@@ -17,9 +17,42 @@ const SAY_SECS: u64 = 8;
 
 enum Screen {
     Home,
+    Actions(usize),
     Menu(usize),
     Game,
     Assistant,
+}
+
+// Index-aligned with i18n::ACTION_LABELS and ui::ACTION_GLYPHS.
+#[derive(Clone, Copy, PartialEq)]
+enum Action {
+    Feed,
+    Play,
+    Sleep,
+    Bath,
+    Game,
+    Assistant,
+    Zen,
+    Switch,
+}
+
+const ACTIONS_ALL: [Action; 8] =
+    [Action::Feed, Action::Play, Action::Sleep, Action::Bath, Action::Game, Action::Assistant, Action::Zen, Action::Switch];
+const ACTIONS_ZEN: [Action; 3] = [Action::Assistant, Action::Zen, Action::Switch];
+
+fn actions_for(zen: bool) -> &'static [Action] {
+    if zen { &ACTIONS_ZEN } else { &ACTIONS_ALL }
+}
+
+// Grid navigation for the species picker: ←→ wrap linearly, ↑↓ move by row.
+fn grid_step(idx: usize, len: usize, cols: usize, code: KeyCode) -> usize {
+    match code {
+        KeyCode::Left | KeyCode::Char('h') => (idx + len - 1) % len,
+        KeyCode::Right | KeyCode::Char('l') => (idx + 1) % len,
+        KeyCode::Up | KeyCode::Char('k') if idx >= cols => idx - cols,
+        KeyCode::Down | KeyCode::Char('j') if idx + cols < len => idx + cols,
+        _ => idx,
+    }
 }
 
 fn push_line(log: &mut VecDeque<Line>, line: Line) {
@@ -122,39 +155,96 @@ impl Inbox {
     }
 }
 
+fn do_play(pet: &mut Pet, log: &mut VecDeque<Line>, time: &str) -> io::Result<()> {
+    let leveled = pet.play();
+    push_log(log, time, i18n::msg_played(&pet.name), Some(("(+10 xp)".into(), Color::Cyan)));
+    if leveled {
+        push_log(log, time, i18n::msg_level_up(&pet.name, pet.level), None);
+    }
+    save(pet)
+}
+
+fn do_bath(pet: &mut Pet, log: &mut VecDeque<Line>, time: &str) -> io::Result<()> {
+    let leveled = pet.bathe();
+    push_log(log, time, i18n::msg_bathed(&pet.name), Some((i18n::BATH_SUFFIX.into(), Color::Green)));
+    if leveled {
+        push_log(log, time, i18n::msg_level_up(&pet.name, pet.level), None);
+    }
+    save(pet)
+}
+
+fn do_sleep(pet: &mut Pet, log: &mut VecDeque<Line>, time: &str) {
+    pet.sleeping = !pet.sleeping;
+    push_log(log, time, i18n::msg_sleep(&pet.name, pet.sleeping), None);
+}
+
+fn do_zen(pet: &mut Pet, log: &mut VecDeque<Line>, time: &str) -> io::Result<()> {
+    pet.zen = !pet.zen;
+    pet.sleeping = false;
+    push_log(log, time, i18n::msg_zen(pet.zen), None);
+    save(pet)
+}
+
+fn do_switch(out: &mut impl Write, pet: &mut Pet, log: &mut VecDeque<Line>, time: &str) -> io::Result<()> {
+    let new = pick_species(out, pet.species)?;
+    if new != pet.species {
+        pet.species = new;
+        push_log(log, time, i18n::msg_became(&pet.name, new), None);
+        save(pet)?;
+    }
+    Ok(())
+}
+
+// Grid picker from the controls redesign: every species visible at once,
+// with an animated preview of the highlighted one below.
 fn pick_species(out: &mut impl Write, start: Species) -> io::Result<Species> {
     let mut idx = SPECIES.iter().position(|&s| s == start).unwrap_or(0);
     let mut frame = 0usize;
+    const CELL: usize = 15;
     loop {
-        let (cols, rows) = crossterm::terminal::size()?;
-        let (iw, ih) = (cols.saturating_sub(2) as usize, rows.saturating_sub(2) as usize);
+        let (tcols, trows) = crossterm::terminal::size()?;
+        let (iw, ih) = (tcols.saturating_sub(2) as usize, trows.saturating_sub(2) as usize);
+        let cols = (iw / CELL).clamp(1, 5).min(SPECIES.len());
         let species = SPECIES[idx];
 
-        let mut content: Vec<Line> = vec![tinted(i18n::PICKER_TITLE, Color::Magenta), Vec::new()];
-        let large = render_art(species, Mood::Happy, frame, ArtSize::Large);
-        let small = render_art(species, Mood::Happy, frame, ArtSize::Small);
-        if ih >= large.len() + 5 && iw >= large[0].chars().count() {
-            content.extend(large.iter().map(|l| plain(l.clone())));
-        } else if ih >= small.len() + 5 && iw >= small[0].chars().count() {
-            content.extend(small.iter().map(|l| plain(l.clone())));
-        } else {
-            content.push(plain(render_tiny(species, Mood::Happy, frame)));
+        let mut content: Vec<Line> = vec![
+            vec![
+                seg(i18n::PICKER_TITLE, Some(Color::Magenta)),
+                seg(format!("  {} ({}/{})", i18n::species_name(species), idx + 1, SPECIES.len()), Some(Color::DarkGrey)),
+            ],
+            Vec::new(),
+        ];
+        for row_start in (0..SPECIES.len()).step_by(cols) {
+            let mut faces: Line = Vec::new();
+            let mut names: Line = Vec::new();
+            for (offset, &sp) in SPECIES[row_start..(row_start + cols).min(SPECIES.len())].iter().enumerate() {
+                let selected = row_start + offset == idx;
+                faces.push(seg(
+                    format!("{:^CELL$}", render_tiny(sp, Mood::Happy, if selected { frame } else { 0 })),
+                    Some(if selected { Color::Cyan } else { Color::Green }),
+                ));
+                names.push(seg(
+                    format!("{:^CELL$}", i18n::species_name(sp)),
+                    Some(if selected { Color::Cyan } else { Color::DarkGrey }),
+                ));
+            }
+            content.push(faces);
+            content.push(names);
+            content.push(Vec::new());
         }
-        content.push(Vec::new());
-        content.push(tinted(
-            format!("< {} >  ({}/{})", i18n::species_name(species), idx + 1, SPECIES.len()),
-            Color::Cyan,
-        ));
+        let preview = render_art(species, Mood::Happy, frame, ArtSize::Small);
+        if ih >= content.len() + preview.len() + 1 && iw >= preview[0].chars().count() {
+            content.extend(preview.iter().map(|l| plain(l.clone())));
+        }
         draw_screen(out, &content, &i18n::FOOTER_PICKER)?;
 
         if event::poll(Duration::from_millis(500))? {
             if let Event::Key(k) = event::read()? {
                 if k.kind == KeyEventKind::Press {
                     match k.code {
-                        KeyCode::Left | KeyCode::Char('h') => idx = (idx + SPECIES.len() - 1) % SPECIES.len(),
-                        KeyCode::Right | KeyCode::Char('l') => idx = (idx + 1) % SPECIES.len(),
                         KeyCode::Enter | KeyCode::Char(' ') => return Ok(SPECIES[idx]),
-                        _ => {}
+                        KeyCode::Esc => return Ok(start),
+                        code => idx = grid_step(idx, SPECIES.len(), cols, code),
                     }
                 }
             }
@@ -331,6 +421,10 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
         };
         match &screen {
             Screen::Home => ui::draw_home(out, pet, frame, &view)?,
+            Screen::Actions(sel) => {
+                let items: Vec<usize> = actions_for(pet.zen).iter().map(|a| *a as usize).collect();
+                ui::draw_actions(out, &items, *sel)?;
+            }
             Screen::Menu(sel) => ui::draw_menu(out, *sel)?,
             Screen::Game => ui::draw_game(out, pet, frame)?,
             Screen::Assistant => {
@@ -368,45 +462,51 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                         inbox.clear();
                         return Ok(());
                     }
+                    KeyCode::Char(' ') => screen = Screen::Actions(0),
+                    KeyCode::Char('a') => screen = Screen::Assistant,
+                    // legacy shortcuts, hidden from the footer but kept working
                     KeyCode::Char('f') if !pet.zen => screen = Screen::Menu(0),
                     KeyCode::Char('m') if !pet.zen => screen = Screen::Game,
-                    KeyCode::Char('a') => screen = Screen::Assistant,
-                    KeyCode::Char('p') if !pet.zen => {
-                        let leveled = pet.play();
-                        push_log(&mut log, &time, i18n::msg_played(&pet.name), Some(("(+10 xp)".into(), Color::Cyan)));
-                        if leveled {
-                            push_log(&mut log, &time, i18n::msg_level_up(&pet.name, pet.level), None);
-                        }
-                        save(pet)?;
-                    }
-                    KeyCode::Char('s') if !pet.zen => {
-                        pet.sleeping = !pet.sleeping;
-                        push_log(&mut log, &time, i18n::msg_sleep(&pet.name, pet.sleeping), None);
-                    }
-                    KeyCode::Char('b') if !pet.zen => {
-                        let leveled = pet.bathe();
-                        push_log(&mut log, &time, i18n::msg_bathed(&pet.name), Some((i18n::BATH_SUFFIX.into(), Color::Green)));
-                        if leveled {
-                            push_log(&mut log, &time, i18n::msg_level_up(&pet.name, pet.level), None);
-                        }
-                        save(pet)?;
-                    }
-                    KeyCode::Char('z') => {
-                        pet.zen = !pet.zen;
-                        pet.sleeping = false;
-                        push_log(&mut log, &time, i18n::msg_zen(pet.zen), None);
-                        save(pet)?;
-                    }
-                    KeyCode::Char('c') => {
-                        let new = pick_species(out, pet.species)?;
-                        if new != pet.species {
-                            pet.species = new;
-                            push_log(&mut log, &time, i18n::msg_became(&pet.name, new), None);
-                            save(pet)?;
-                        }
-                    }
+                    KeyCode::Char('p') if !pet.zen => do_play(pet, &mut log, &time)?,
+                    KeyCode::Char('s') if !pet.zen => do_sleep(pet, &mut log, &time),
+                    KeyCode::Char('b') if !pet.zen => do_bath(pet, &mut log, &time)?,
+                    KeyCode::Char('z') => do_zen(pet, &mut log, &time)?,
+                    KeyCode::Char('c') => do_switch(out, pet, &mut log, &time)?,
                     _ => {}
                 },
+                Screen::Actions(sel) => {
+                    let items = actions_for(pet.zen);
+                    let chosen = match k.code {
+                        KeyCode::Esc | KeyCode::Char(' ') | KeyCode::Char('q') => {
+                            screen = Screen::Home;
+                            None
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            screen = Screen::Actions((sel + items.len() - 1) % items.len());
+                            None
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            screen = Screen::Actions((sel + 1) % items.len());
+                            None
+                        }
+                        KeyCode::Enter => items.get(sel).copied(),
+                        KeyCode::Char(c @ '1'..='9') => items.get(c as usize - '1' as usize).copied(),
+                        _ => None,
+                    };
+                    if let Some(action) = chosen {
+                        screen = Screen::Home;
+                        match action {
+                            Action::Feed => screen = Screen::Menu(0),
+                            Action::Game => screen = Screen::Game,
+                            Action::Assistant => screen = Screen::Assistant,
+                            Action::Play => do_play(pet, &mut log, &time)?,
+                            Action::Sleep => do_sleep(pet, &mut log, &time),
+                            Action::Bath => do_bath(pet, &mut log, &time)?,
+                            Action::Zen => do_zen(pet, &mut log, &time)?,
+                            Action::Switch => do_switch(out, pet, &mut log, &time)?,
+                        }
+                    }
+                }
                 Screen::Menu(sel) => match k.code {
                     KeyCode::Esc | KeyCode::Char('q') => screen = Screen::Home,
                     KeyCode::Up | KeyCode::Char('k') => screen = Screen::Menu((sel + FOODS.len() - 1) % FOODS.len()),
@@ -547,6 +647,31 @@ mod tests {
     fn random_pick_is_a_valid_hand() {
         for _ in 0..10 {
             assert!(random_pick() < 3);
+        }
+    }
+
+    #[test]
+    fn grid_step_navigates_two_axes_with_wrap() {
+        use KeyCode::*;
+        let (len, cols) = (10, 5);
+        assert_eq!(grid_step(0, len, cols, Right), 1);
+        assert_eq!(grid_step(0, len, cols, Left), 9);
+        assert_eq!(grid_step(9, len, cols, Right), 0);
+        assert_eq!(grid_step(2, len, cols, Down), 7);
+        assert_eq!(grid_step(7, len, cols, Up), 2);
+        assert_eq!(grid_step(2, len, cols, Up), 2); // top row stays
+        assert_eq!(grid_step(7, len, cols, Down), 7); // bottom row stays
+    }
+
+    #[test]
+    fn action_tables_stay_index_aligned() {
+        assert_eq!(ACTIONS_ALL.len(), crate::i18n::ACTION_LABELS.len());
+        assert_eq!(ACTIONS_ALL.len(), crate::ui::ACTION_GLYPHS.len());
+        for (i, a) in ACTIONS_ALL.iter().enumerate() {
+            assert_eq!(*a as usize, i);
+        }
+        for a in ACTIONS_ZEN {
+            assert!(ACTIONS_ALL.contains(&a));
         }
     }
 
