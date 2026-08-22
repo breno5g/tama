@@ -1,0 +1,12 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "title": "cachorro", "x": 0, "y": 0, "w": 1040, "h": 560 },
+    { "file": "Coelho.dc.html", "x": 0, "y": 690, "w": 1040, "h": 560 },
+    { "file": "Dragao.dc.html", "x": 0, "y": 1380, "w": 1100, "h": 560 }
+  ],
+  "annotations": [
+    { "id": "como-escolher", "x": 1120, "y": 0, "w": 320, "text": "Sprites novos para o tama\n\nAs silhuetas atuais nao carregam a assinatura de cada bicho — estes candidatos exageram exatamente o traco que identifica cada um: orelha caida (cachorro), orelhao com miolo (coelho), chifre varrido + asa + presa (dragao).\n\nEscolha por bicho: responda tipo 'cachorro A, coelho A, dragao B'. Dai eu implemento os escolhidos + as versoes compacta e mini de cada um.\n\nRestricoes mantidas: olhos e boca sao caracteres unicos trocaveis por humor, largura uniforme, linha do zzz reservada." },
+    { "id": "nota-gato-fantasma", "x": 1120, "y": 420, "w": 300, "text": "Gato e fantasma ficaram de fora de proposito — as silhuetas atuais ja leem bem. Se quiser candidatos pra eles tambem, e so pedir." }
+  ],
+  "launch": { "view": "canvas" }
+}
