@@ -117,9 +117,9 @@ pub const FOOTER_ASSISTANT: [&str; 3] = [
     "enter x a q",
 ];
 pub const FOOTER_ASK: [&str; 3] = [
-    "[1-9] responder  [t] escrever  [esc] ignorar  [a] modo pet",
-    "1-9 responder  t escrever  esc",
-    "1-9 t esc a",
+    "[↑↓] escolher  [enter] responder  [1-9] direto  [esc] ignorar",
+    "↑↓ enter responder  1-9  esc",
+    "↑↓ enter 1-9 esc",
 ];
 pub const FOOTER_INPUT: [&str; 2] = ["digite a resposta  [enter] enviar  [esc] cancelar", "enter esc"];
 // Última opção quando a pergunta aceita texto livre — o "Other" dos prompts

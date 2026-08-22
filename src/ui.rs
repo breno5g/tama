@@ -1037,6 +1037,7 @@ pub struct AssistantMsg<'a> {
     pub expires_in: Option<u64>, // seconds until the ask is dropped
     pub input: Option<&'a str>,  // Some = typing a free-text answer right now
     pub input_ok: bool,          // a typed answer is offered as one more option
+    pub sel: usize,              // highlighted option (the list scrolls to it)
 }
 
 const BUBBLE_TEXT_ROWS: usize = 4; // fixed: message length must not resize the layout
@@ -1093,7 +1094,7 @@ fn answer_rows(m: &AssistantMsg, w: usize) -> Vec<Line> {
             }
             rows
         }
-        None => option_rows(&option_labels(m.options.unwrap_or_default(), m.input_ok), w),
+        None => option_rows(&option_labels(m.options.unwrap_or_default(), m.input_ok), m.sel, w),
     }
 }
 
@@ -1108,21 +1109,39 @@ pub fn option_labels(options: &[String], input_ok: bool) -> Vec<String> {
     labels
 }
 
-// One option per row in OPTION_ROWS fixed slots (blank-padded, so option
-// count never resizes the layout). Options past the last slot pack into it;
-// anything wider than `w` clips with a trailing …
-fn option_rows(options: &[String], w: usize) -> Vec<Line> {
+// The window of options around the cursor: the list scrolls inside a fixed
+// OPTION_ROWS-tall slot, so a long list never resizes the card.
+fn option_window(len: usize, sel: usize) -> std::ops::Range<usize> {
+    let start = sel.saturating_sub(OPTION_ROWS - 1).min(len.saturating_sub(OPTION_ROWS));
+    start..(start + OPTION_ROWS).min(len)
+}
+
+// One option per row, cursor-marked like the actions menu, blank-padded to
+// OPTION_ROWS. `↑`/`↓ +N` show what is scrolled out of view; anything wider
+// than `w` clips with a trailing …
+fn option_rows(options: &[String], sel: usize, w: usize) -> Vec<Line> {
+    let window = option_window(options.len(), sel);
+    let (above, below) = (window.start, options.len().saturating_sub(window.end));
     let mut rows: Vec<Line> = Vec::new();
-    for (i, o) in options.iter().enumerate().take(9) {
-        let mut item: Line = vec![chip(&(i + 1).to_string()), seg(format!(" {o}"), None)];
-        match rows.len() < OPTION_ROWS {
-            true => rows.push(item),
-            false => {
-                let last = rows.last_mut().unwrap();
-                last.push(seg("  ", None));
-                last.append(&mut item);
-            }
+    for i in window {
+        let selected = i == sel;
+        let mut row: Line = vec![
+            seg(if selected { "▸" } else { " " }, Some(Color::Cyan)),
+            chip(&(i + 1).to_string()),
+            seg(format!(" {}", options[i]), if selected { Some(Color::Cyan) } else { None }),
+        ];
+        // scroll hints ride the first and last visible rows
+        let hint = match (rows.is_empty(), above, below) {
+            (true, n, _) if n > 0 => Some(format!(" ↑{n}")),
+            (false, _, n) if n > 0 && rows.len() + 1 == OPTION_ROWS => Some(format!(" ↓{n}")),
+            _ => None,
+        };
+        if let Some(h) = hint {
+            let pad = w.saturating_sub(line_w(&row) + h.chars().count());
+            row.push(seg(" ".repeat(pad), None));
+            row.push(seg(h, Some(Color::DarkGrey)));
         }
+        rows.push(row);
     }
     while rows.len() < OPTION_ROWS {
         rows.push(Vec::new());
@@ -1422,6 +1441,7 @@ mod tests {
             expires_in,
             input: None,
             input_ok: false,
+            sel: 0,
         }
     }
 
@@ -1510,6 +1530,7 @@ mod tests {
                         expires_in: None,
                         input: None,
                         input_ok: false,
+                        sel: 0,
                     }),
                 ] {
                     let c = build_assistant(&pet, 0, msg.as_ref(), &queue, 1, &view_of(&EMPTY_LOG), iw, ih);
@@ -1541,21 +1562,38 @@ mod tests {
     }
 
     #[test]
-    fn option_rows_are_one_per_slot_and_clip_with_ellipsis() {
+    fn option_rows_mark_the_cursor_and_clip_with_ellipsis() {
         let opts: Vec<String> = vec!["curta".into(), "uma opção comprida demais para caber".into()];
-        let rows = option_rows(&opts, 16);
+        let rows = option_rows(&opts, 0, 16);
         assert_eq!(rows.len(), OPTION_ROWS);
-        assert!(rows[0].iter().any(|(s, ..)| s.contains("curta")));
+        let first: String = rows[0].iter().map(|(s, ..)| s.clone()).collect();
+        assert!(first.starts_with('▸'), "cursor deveria marcar a opção 0: {first:?}");
         let second: String = rows[1].iter().map(|(s, ..)| s.clone()).collect();
-        assert!(second.ends_with('…'), "clipped option should end in …: {second:?}");
+        assert!(!second.starts_with('▸'));
+        assert!(second.ends_with('…'), "opção longa deveria cortar: {second:?}");
         assert_eq!(line_w(&rows[1]), 16);
-        assert_eq!(line_w(&rows[2]), 0); // empty slot stays reserved
-        // options past the last slot pack into it
-        let many: Vec<String> = ["a", "b", "c", "d", "e"].iter().map(|s| s.to_string()).collect();
-        let rows = option_rows(&many, 60);
-        assert_eq!(rows.len(), OPTION_ROWS);
-        let last: String = rows[2].iter().map(|(s, ..)| s.clone()).collect();
-        assert!(last.contains('c') && last.contains('d') && last.contains('e'), "{last:?}");
+        assert_eq!(line_w(&rows[2]), 0); // slot vazio segue reservado
+    }
+
+    #[test]
+    fn long_option_lists_scroll_around_the_cursor() {
+        let many: Vec<String> = (1..=7).map(|i| format!("opção {i}")).collect();
+        // no topo: 3 primeiras, com aviso do que ficou abaixo
+        assert_eq!(option_window(7, 0), 0..3);
+        let rows = option_rows(&many, 0, 40);
+        let text = |r: &Line| r.iter().map(|(s, ..)| s.clone()).collect::<String>();
+        assert!(text(&rows[0]).contains("opção 1"));
+        assert!(text(&rows[2]).contains("↓4"), "faltou o aviso de scroll: {:?}", text(&rows[2]));
+        // no fim: janela desliza e o aviso vira o de cima
+        assert_eq!(option_window(7, 6), 4..7);
+        let rows = option_rows(&many, 6, 40);
+        assert!(text(&rows[0]).contains("↑4"), "{:?}", text(&rows[0]));
+        assert!(text(&rows[2]).contains("▸") && text(&rows[2]).contains("opção 7"));
+        // lista curta não rola nem avisa
+        let few: Vec<String> = vec!["a".into(), "b".into()];
+        assert_eq!(option_window(2, 1), 0..2);
+        let rows = option_rows(&few, 1, 40);
+        assert!(!text(&rows[0]).contains('↑') && !text(&rows[1]).contains('↓'));
     }
 
     #[test]

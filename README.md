@@ -57,8 +57,10 @@ ticker, progresso e eventos têm espaço reservado, então nada pula na tela.
 
 Programas externos falam com o tama por um named pipe **ou por HTTP**;
 respostas saem num arquivo de saída (pipe/CLI) ou na própria resposta HTTP.
-Pergunta se responde com as teclas `1-9`. Quando ela aceita texto livre
-(`input`), a última opção da lista é **outra (escrever)** — como o "Other"
+Pergunta se responde com `↑↓` + `enter`, como o menu de ações, ou direto
+pelo número (`1-9`). Lista maior que o espaço rola sozinha atrás do cursor,
+com `↑N`/`↓N` indicando o que ficou fora de vista. Quando a pergunta aceita
+texto livre (`input`), a última opção é **outra (escrever)** — como o "Other"
 dos prompts do Claude: escolher ela (ou apertar `t`) abre um campo, `enter`
 envia e `esc` volta para a lista. É assim que um LLM recebe prosa de volta,
 e não só uma das opções que ele imaginou.

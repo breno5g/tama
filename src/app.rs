@@ -298,6 +298,15 @@ fn pending_ask(inbox: &Inbox) -> Option<String> {
         .or_else(|| inbox.queue.iter().find_map(ask))
 }
 
+// The choice list of the question on screen: the sender's options plus the
+// "escrever" entry when it accepts free text.
+fn ask_options(inbox: &Inbox) -> Option<Vec<String>> {
+    match &inbox.current {
+        Some((Msg::Ask { options, input, .. }, _)) => Some(ui::option_labels(options, *input)),
+        _ => None,
+    }
+}
+
 // Answers the current question — by picked option or typed text, same path.
 fn answer_ask(inbox: &mut Inbox, log: &mut VecDeque<Line>, time: &str, answer: &str) {
     let Some((Msg::Ask { text, id, .. }, _)) = &inbox.current else { return };
@@ -473,6 +482,8 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
     let mut pomo: Option<Pomo> = saved.pomo.map(Pomo::from);
     let mut schedule_dirty = false;
     let mut notified = false; // an Android notification is currently showing
+    let mut ask_sel = 0usize; // highlighted option of the question on screen
+    let mut ask_id = String::new(); // which question that state belongs to
 
     let mut screen = Screen::Home;
     // where an Ask yanked the user from; restored when the inbox drains
@@ -639,15 +650,19 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                 }
             }
             inbox.promote();
-            // the typing field follows the current ask: text-only asks (no
-            // options) open it by themselves; it dies with the ask
+            // cursor and typing buffer belong to ONE question: a new one on
+            // screen starts clean, and a text-only ask opens the field itself
             match &inbox.current {
-                Some((Msg::Ask { options, .. }, _)) => {
-                    if options.is_empty() && input.is_none() {
-                        input = Some(String::new());
-                    }
+                Some((Msg::Ask { id, options, .. }, _)) if *id != ask_id => {
+                    ask_id = id.clone();
+                    ask_sel = 0;
+                    input = options.is_empty().then(String::new);
                 }
-                _ => input = None,
+                Some((Msg::Ask { .. }, _)) => {}
+                _ => {
+                    ask_id.clear();
+                    input = None;
+                }
             }
             if inbox.is_empty() {
                 screen = prev_screen;
@@ -721,6 +736,7 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                         expires_in: None,
                         input: None,
                         input_ok: false,
+                        sel: 0,
                     }),
                     Msg::Ask { text, from, options, expires, input: input_ok, .. } => Some(ui::AssistantMsg {
                         text,
@@ -731,6 +747,7 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                         expires_in: expires.map(|e| e.saturating_sub(now)),
                         input: input.as_deref(),
                         input_ok: *input_ok,
+                        sel: ask_sel,
                     }),
                     _ => None,
                 });
@@ -928,11 +945,27 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                     KeyCode::Char('t') if matches!(inbox.current, Some((Msg::Ask { input: true, .. }, _))) => {
                         input = Some(String::new());
                     }
-                    KeyCode::Enter => {
-                        if matches!(inbox.current, Some((Msg::Say { .. }, _))) {
-                            inbox.current = None;
+                    // cursor over the option list, like the actions menu; the
+                    // list scrolls when it is longer than the visible slots
+                    KeyCode::Up | KeyCode::Down | KeyCode::Char('k') | KeyCode::Char('j') => {
+                        if let Some(len) = ask_options(&inbox).map(|o| o.len()) {
+                            let back = matches!(k.code, KeyCode::Up | KeyCode::Char('k'));
+                            ask_sel = match back {
+                                true => (ask_sel + len - 1) % len,
+                                false => (ask_sel + 1) % len,
+                            };
                         }
                     }
+                    KeyCode::Enter => match ask_options(&inbox).and_then(|o| o.get(ask_sel).cloned()) {
+                        Some(o) if o == i18n::OPTION_WRITE => input = Some(String::new()),
+                        Some(option) => answer_ask(&mut inbox, &mut log, &time, &option),
+                        // no question on screen: enter dismisses a message
+                        None => {
+                            if matches!(inbox.current, Some((Msg::Say { .. }, _))) {
+                                inbox.current = None;
+                            }
+                        }
+                    },
                     KeyCode::Esc => {
                         inbox.advance();
                     }
@@ -940,12 +973,8 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                     // accepted) one last "escrever" entry, which opens the
                     // field instead of answering.
                     KeyCode::Char(c @ '1'..='9') => {
-                        let picked = match &inbox.current {
-                            Some((Msg::Ask { options, input: input_ok, .. }, _)) => {
-                                ui::option_labels(options, *input_ok).get(c as usize - '1' as usize).cloned()
-                            }
-                            _ => None,
-                        };
+                        let picked =
+                            ask_options(&inbox).and_then(|o| o.get(c as usize - '1' as usize).cloned());
                         match picked {
                             Some(o) if o == i18n::OPTION_WRITE => input = Some(String::new()),
                             Some(option) => answer_ask(&mut inbox, &mut log, &time, &option),
