@@ -20,7 +20,7 @@ pub struct Food {
     pub hygiene: i16,
 }
 
-// Index-aligned with i18n::FOOD_NAMES.
+// Index-aligned with i18n::t().food_names.
 pub const FOODS: [Food; 4] = [
     Food { hunger: 15, happiness: 0, energy: 0, hygiene: 0 },
     Food { hunger: 25, happiness: 5, energy: 0, hygiene: 0 },
