@@ -11,6 +11,11 @@ pub fn species_name(s: Species) -> &'static str {
         Species::Bunny => "coelho",
         Species::Dragon => "dragão",
         Species::Ghost => "fantasma",
+        Species::Frog => "sapo",
+        Species::Owl => "coruja",
+        Species::Fox => "raposa",
+        Species::Penguin => "pinguim",
+        Species::Octopus => "polvo",
     }
 }
 
@@ -21,6 +26,11 @@ pub fn species_trait(s: Species) -> &'static str {
         Species::Bunny => "tímido",
         Species::Dragon => "orgulhoso",
         Species::Ghost => "misterioso",
+        Species::Frog => "tranquilão",
+        Species::Owl => "sábio",
+        Species::Fox => "esperto",
+        Species::Penguin => "elegante",
+        Species::Octopus => "curioso",
     }
 }
 
@@ -31,6 +41,11 @@ pub fn species_sound(s: Species) -> &'static str {
         Species::Bunny => "hop hop",
         Species::Dragon => "rawr!",
         Species::Ghost => "buu!",
+        Species::Frog => "ribbit!",
+        Species::Owl => "huu huu!",
+        Species::Fox => "yip yip!",
+        Species::Penguin => "noot noot!",
+        Species::Octopus => "blub blub",
     }
 }
 
@@ -41,6 +56,11 @@ pub fn species_tastes(s: Species) -> (&'static str, &'static str) {
         Species::Bunny => ("chá de camomila", "barulho"),
         Species::Dragon => ("peixe grelhado", "banho frio"),
         Species::Ghost => ("chá de camomila", "sol do meio-dia"),
+        Species::Frog => ("dia de chuva", "sol do meio-dia"),
+        Species::Owl => ("madrugada", "acordar cedo"),
+        Species::Fox => ("bolinho", "coleira"),
+        Species::Penguin => ("peixe grelhado", "calor"),
+        Species::Octopus => ("peixe grelhado", "aquário apertado"),
     }
 }
 

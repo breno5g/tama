@@ -10,7 +10,7 @@ tarefas longas e dispara lembretes e timers.
 ```bash
 cargo run              # abre o pet (primeira vez: escolha a espécie e o nome)
 cargo run -- --gallery # imprime a arte de todos os pets e sai
-cargo test             # 49 testes
+cargo test             # 50 testes
 ```
 
 Requer um terminal com suporte a 256 cores. Para ter o binário no PATH:
@@ -18,7 +18,8 @@ Requer um terminal com suporte a 256 cores. Para ter o binário no PATH:
 
 ## O pet
 
-- **5 espécies** — gato, cachorro, coelho, dragão e fantasma — em sprites de
+- **10 espécies** — gato, cachorro, coelho, dragão, fantasma, sapo, coruja,
+  raposa, pinguim e polvo — em sprites de
   blocos estilo LCD, com versões grande, compacta e de uma linha.
 - **Stats**: fome, felicidade, energia e higiene decaem com o tempo (inclusive
   offline, com teto de 24h); humor derivado das stats muda a cara e a cor.

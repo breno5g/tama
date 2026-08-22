@@ -7,9 +7,25 @@ pub enum Species {
     Bunny,
     Dragon,
     Ghost,
+    Frog,
+    Owl,
+    Fox,
+    Penguin,
+    Octopus,
 }
 
-pub const SPECIES: [Species; 5] = [Species::Cat, Species::Dog, Species::Bunny, Species::Dragon, Species::Ghost];
+pub const SPECIES: [Species; 10] = [
+    Species::Cat,
+    Species::Dog,
+    Species::Bunny,
+    Species::Dragon,
+    Species::Ghost,
+    Species::Frog,
+    Species::Owl,
+    Species::Fox,
+    Species::Penguin,
+    Species::Octopus,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ArtSize {
@@ -25,6 +41,11 @@ impl Species {
             Species::Bunny => "bunny",
             Species::Dragon => "dragon",
             Species::Ghost => "ghost",
+            Species::Frog => "frog",
+            Species::Owl => "owl",
+            Species::Fox => "fox",
+            Species::Penguin => "penguin",
+            Species::Octopus => "octopus",
         }
     }
 
@@ -37,85 +58,87 @@ impl Species {
     fn template(self, size: ArtSize) -> &'static str {
         match (self, size) {
             (Species::Cat, ArtSize::Large) => r#"
-   ▄█▄           ▄█▄
-  █▀ ▀█▄▄▄▄▄▄▄▄▄█▀ ▀█
- █▀                 ▀█
- █                   █
- █    %         %    █
- █                   █
- █         ▄         █
- ▀█▄      ▀&▀      ▄█▀
-   ▀█▄▄▄▄▄▄▄▄▄▄▄▄▄█▀
+    ▄█▄         ▄█▄
+   █▀ ▀█▄▄▄▄▄▄▄█▀ ▀█
+  █▀  ▀▀  ▀▀▀  ▀▀  ▀█
+ =█    %       %    █=
+ =█                 █=
+  █        ▄        █
+  ▀█▄     ▀&▀     ▄█▀
    ▄█▀▀▀▀▀▀▀▀▀▀▀▀▀█▄
-  █▀    ▄     ▄    ▀█   ▄▄
-  █▄▄▄▄█ █▄▄▄█ █▄▄▄▄█▄▄█ █
-   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"#,
+  █▀ ▀▀▄  ▀▀▀  ▄▀▀ ▀█
+  █▄▄▄▄█ █▄▄▄█ █▄▄▄▄█
+   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"#,
             (Species::Cat, ArtSize::Small) => r#"
- ▄█▄       ▄█▄
-█▀ ▀█▄▄▄▄▄█▀ ▀█
-█  %       %  █
-█     ▀&▀     █
-▀█▄         ▄█▀
-  ▀▀▀▀▀▀▀▀▀▀▀"#,
+ ▄█▄     ▄█▄
+█▀ ▀█▄▄▄█▀ ▀█
+█ ▀ %   % ▀ █
+█    ▀&▀    █
+▀█▄       ▄█▀
+  ▀▀▀▀▀▀▀▀▀"#,
             (Species::Dog, ArtSize::Large) => r#"
-   ▄▄▄▄         ▄▄▄▄
-  █▀▀▀▀█▄▄▄▄▄▄▄█▀▀▀▀█
-  █   █▀       ▀█   █
-  █   █  %   %  █   █
-  ▀█▄▄█         █▄▄█▀
-      █    ▄    █
-      █   ▀&▀   █
-      ▀█▄     ▄█▀
-       ▄█▀▀▀▀▀█▄
-      █▀       ▀█
-      █ ▄▄   ▄▄ █
-      ▀▀▀▀▀▀▀▀▀▀▀"#,
+    ▄▄▄▀▀▀▀▀▀▀▀▀▀▀▄▄▄
+   ██▀ ▄▄▄▄▄▄▄▄▄▄▄ ▀██
+   ██  █         █  ██
+   ██  █  %   %  █  ██
+   ██  █         █  ██
+   ▀██ █  ▄▄▄▄▄  █ ██▀
+     ▀ █▄█ ▄▄▄ █▄█ ▀
+       ██  ▀█▀  ██
+       ██   &   ██
+        █▄▄▄▄▄▄▄█
+        ▄█▀▀▀▀▀█▄
+        █ ▄▄ ▄▄ █
+        ▀▀▀▀▀▀▀▀▀"#,
             (Species::Dog, ArtSize::Small) => r#"
-▄▄▄▄       ▄▄▄▄
-█▀▀█▄▄▄▄▄▄▄█▀▀█
-█ █ %     % █ █
-▀▄█    &    █▄▀
-  █▄       ▄█
-   ▀▀▀▀▀▀▀▀▀"#,
-            (Species::Bunny, ArtSize::Large) => r#"
-    ▄█▄       ▄█▄
-    █ █       █ █
-    █ █       █ █
-    █ ▀█▄▄▄▄▄█▀ █
-   ▄▀           ▀▄
-   █   %     %   █
-   █      ▄      █
-   █     ▀&▀     █
-   ▀█▄         ▄█▀
-   ▄█▀▀▀▀▀▀▀▀▀▀▀█▄
-  █▀             ▀█
-  █▄▄█▀█▄▄▄▄▄█▀█▄▄█"#,
-            (Species::Bunny, ArtSize::Small) => r#"
-  █▄     ▄█
-  █ █   █ █
-  █ ▀▄▄▄▀ █
- █▀ %   % ▀█
- █    &    █
+ ▄▄▀▀▀▀▀▀▀▄▄
+██  %   %  ██
+██    ▄    ██
+▀██  ▀█▀  ██▀
+  █   &   █
   ▀▄▄▄▄▄▄▄▀"#,
+            (Species::Bunny, ArtSize::Large) => r#"
+     ▄█▀█▄     ▄█▀█▄
+     █ ▀ █     █ ▀ █
+     █ ▀ █     █ ▀ █
+     █ ▀ █     █ ▀ █
+     ▀█▄██▄▄▄▄▄██▄█▀
+     ▄▀           ▀▄
+   =█   %       %   █=
+   =█               █=
+    █       ▄       █
+    █      ▀&▀      █
+     █     ▀▀▀     █
+      ▀▄▄▄▄▄▄▄▄▄▄▄▀
+       ▄█▄     ▄█▄"#,
+            (Species::Bunny, ArtSize::Small) => r#"
+ ▄█▄     ▄█▄
+ █ █     █ █
+ █ █     █ █
+▄▀▀▀▀▀▀▀▀▀▀▀▄
+█  %     %  █
+█    ▀&▀    █
+▀▄▄▄▄▄▄▄▄▄▄▄▀"#,
             (Species::Dragon, ArtSize::Large) => r#"
-  ▄▄             ▄▄
-  █ ▀▄▄▀▀▀▀▀▀▀▄▄▀ █
-  ▀▄▄█         █▄▄▀
-    █  %     %  █
-   ▄█     ▄     █▄
-  █▀ █   ▀&▀   █ ▀█
-  █  ▀█▄     ▄█▀  █
-  █▄▄ ▄█▀▀▀▀▀█▄ ▄▄█
-   ▀ █▀       ▀█ ▀
-     █ ▄▄   ▄▄ █▄▄
-     ▀▀▀▀▀▀▀▀▀▀▀ ▀▄▄o"#,
+   █▄                 ▄█
+   ▀██▄▄           ▄▄██▀
+     ▀▄██▄▄▀▀▀▀▀▄▄██▄▀
+      █             █
+    ▄█▀  %       %  ▀█▄
+   ██                 ██
+   ██     ▄▄▄▄▄▄▄     ██
+   █▀█   █  ▄ ▄  █   █▀█
+   █ ▀▄  █   &   █  ▄▀ █
+   ▀▄▄ ▀▄▀█▀▀▀▀█▀▄▀ ▄▄▀
+      █  ▄▄   ▄▄  █▄
+      ▀▀▀▀▀▀▀▀▀▀▀▀ ▀▄▄o"#,
             (Species::Dragon, ArtSize::Small) => r#"
- ▄▄ ▄▄▄▄▄ ▄▄
- █▄█▀▀▀▀▀█▄█
- █ %     % █
-█▀   ▀&▀   ▀█
-█▄▄▄     ▄▄▄█
-   ▀▀▀▀▀▀▀"#,
+█▄           ▄█
+ ▀█▄▄▀▀▀▀▀▄▄█▀
+  █  %   %  █
+ ██   ▄▄▄   ██
+ █▀█ █ & █ █▀█
+  ▀▄▄▀▀▀▀▀▄▄▀ ▄o"#,
             (Species::Ghost, ArtSize::Large) => r#"
     ▄▄█▀▀▀▀▀█▄▄
    █▀         ▀█
@@ -132,16 +155,103 @@ impl Species {
  █    &    █
  █         █
  █▄▀█▄▀█▄▀█▄"#,
+            (Species::Frog, ArtSize::Large) => r#"
+   ▄▀▀▀▄   ▄▀▀▀▄
+   █ % █   █ % █
+  ▄█▄▄▄▀▀▀▀▀▄▄▄█▄
+  █             █
+  █      &      █
+  █  ▀▄▄▄▄▄▄▄▀  █
+  ▀▄▄▄▄▄▄▄▄▄▄▄▄▄▀
+  ▄█▀▄▄       ▄▄▀█▄"#,
+            (Species::Frog, ArtSize::Small) => r#"
+ ▄▀▀▀▄ ▄▀▀▀▄
+ █ % █ █ % █
+▄█▄▄▄▀▀▀▄▄▄█▄
+█     &     █
+▀▄▄▄▄▄▄▄▄▄▄▄▀"#,
+            (Species::Owl, ArtSize::Large) => r#"
+ ▄▀▄▄▄▄▄▄▄▄▄▄▄▀▄
+ █  ▄▄▄   ▄▄▄  █
+ █ ( % ) ( % ) █
+ █  ▀▀▀ ▄ ▀▀▀  █
+ █     ▀&▀     █
+ ▀█  ▀▄▄▄▄▄▀  █▀
+  █ ▄▄▄   ▄▄▄ █
+  █▄▄▄▄▄▄▄▄▄▄▄█
+    ▀█▀   ▀█▀"#,
+            (Species::Owl, ArtSize::Small) => r#"
+▄▀▄▄▄▄▄▄▄▀▄
+█ (%) (%) █
+█    ▄    █
+█   ▀&▀   █
+█▄▄▄▄▄▄▄▄▄█
+  ▀█▀ ▀█▀"#,
+            (Species::Fox, ArtSize::Large) => r#"
+  ▄█▄             ▄█▄
+ █▀ ▀█▄▄▄▄▄▄▄▄▄▄▄█▀ ▀█
+ █▀▀▀  ▀       ▀  ▀▀▀█
+==█   %         %   █==
+  ▀█▄               ▄█▀
+    ▀█▄    ▄▄▄    ▄█▀
+      ▀██▄ ▀█▀ ▄██▀
+        ▀██ & ██▀
+          ▀▀▀▀▀"#,
+            (Species::Fox, ArtSize::Small) => r#"
+ ▄█▄     ▄█▄
+█▀ ▀█▄▄▄█▀ ▀█
+█  %     %  █
+▀█▄  ▄▄▄  ▄█▀
+  ▀█▄▀&▀▄█▀
+    ▀▀▀▀▀"#,
+            (Species::Penguin, ArtSize::Large) => r#"
+    ▄▄█▀▀▀▀▀█▄▄
+   █▀  %   %  ▀█
+   █      ▄     █
+   █     ▀&▀    █
+  █▀ ▄▀▀▀▀▀▀▀▄ ▀█
+  █  █       █  █
+  █▄ █       █ ▄█
+   ▀▄▀▄▄▄▄▄▄▄▀▄▀
+    ▄█▄     ▄█▄"#,
+            (Species::Penguin, ArtSize::Small) => r#"
+ ▄█▀▀▀▀▀█▄
+█  %   %  █
+█    ▄    █
+█   ▀&▀   █
+█ ▄▀▀▀▀▀▄ █
+▀▄█▄▄▄▄▄█▄▀"#,
+            (Species::Octopus, ArtSize::Large) => r#"
+    ▄█▀▀▀▀▀▀▀█▄
+   █  %     %  █
+   █           █
+   █     ▄     █
+   █    ▀&▀    █
+   ▀█▄▄▄▄▄▄▄▄▄█▀
+   ▄▀▄ █▀▄ ▄▀█ ▄▀▄
+   █ ▀▀▀ ▀▀▀ ▀▀▀ █"#,
+            (Species::Octopus, ArtSize::Small) => r#"
+ ▄█▀▀▀▀▀█▄
+█  %   %  █
+█    &    █
+▀█▄▄▄▄▄▄▄█▀
+▄▀▄ █▀▄ ▄▀▄
+█ ▀▀▀ ▀▀▀ █"#,
         }
     }
 
     fn tiny_face(self) -> &'static str {
         match self {
             Species::Cat => "(=^ %&% ^=)",
-            Species::Dog => "(v. %&% .v)",
+            Species::Dog => "∩( %&% )∩",
             Species::Bunny => r"\\( %&% )//",
             Species::Dragon => "<{ %&% }>",
             Species::Ghost => "~( %&% )~",
+            Species::Frog => "o( %&% )o",
+            Species::Owl => "(( %&% ))",
+            Species::Fox => "=( %&% )=",
+            Species::Penguin => "d( %&% )b",
+            Species::Octopus => "}( %&% ){",
         }
     }
 }
@@ -179,9 +289,6 @@ pub fn render_art_face(species: Species, size: ArtSize, eye: char, mouth: char) 
     render_lines(species, size, eye, mouth, None)
 }
 
-// Width is constant across moods by construction (only single chars swap);
-// the sleeping zzz is NOT embedded here — a caller that shows it appends it
-// in a reserved trailing slot so it never shifts what sits next to the face.
 pub fn render_tiny(species: Species, mood: Mood, frame: usize) -> String {
     let (eye, mouth) = mood.face(frame % 4 == 3);
     render_tiny_face(species, eye, mouth)
@@ -215,6 +322,20 @@ mod tests {
     }
 
     #[test]
+    fn every_template_has_exactly_two_eyes_and_one_mouth() {
+        for species in SPECIES {
+            for size in [ArtSize::Large, ArtSize::Small] {
+                let t = species.template(size);
+                assert_eq!(t.matches('%').count(), 2, "{species:?}/{size:?} eyes");
+                assert_eq!(t.matches('&').count(), 1, "{species:?}/{size:?} mouth");
+            }
+            let f = species.tiny_face();
+            assert_eq!(f.matches('%').count(), 2, "{species:?} tiny eyes");
+            assert_eq!(f.matches('&').count(), 1, "{species:?} tiny mouth");
+        }
+    }
+
+    #[test]
     fn tiny_faces_render_every_mood() {
         for species in SPECIES {
             for mood in MOODS {
@@ -232,12 +353,6 @@ mod tests {
         assert!(art[0].contains("z Z z"));
     }
 
-    #[test]
-    fn tiny_face_has_no_trailing_reserve() {
-        let face = render_tiny(Species::Bunny, Mood::Happy, 0);
-        assert_eq!(face, face.trim_end());
-    }
-
     // Falling asleep must not change the art's footprint — the layout would
     // reflow otherwise.
     #[test]
@@ -253,6 +368,12 @@ mod tests {
             let tiny_asleep = render_tiny(species, Mood::Sleeping, 0);
             assert_eq!(tiny_awake.chars().count(), tiny_asleep.chars().count(), "{species:?} tiny width changed");
         }
+    }
+
+    #[test]
+    fn tiny_face_has_no_trailing_reserve() {
+        let face = render_tiny(Species::Bunny, Mood::Happy, 0);
+        assert_eq!(face, face.trim_end());
     }
 
     #[test]
