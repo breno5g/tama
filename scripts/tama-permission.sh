@@ -18,8 +18,8 @@ detail=$(field command)
 detail=$(printf '%s' "$detail" | cut -c1-160)
 
 ans=$($TAMA_CMD ask "claude quer usar ${tool:-?}: $detail" \
-    --opcoes permitir --opcoes negar --opcoes "decidir no claude" \
-    --de claude --timeout 60s --padrao "decidir no claude")
+    --options permitir --options negar --options "decidir no claude" \
+    --from claude --timeout 60s --default "decidir no claude")
 
 case "$ans" in
 permitir)

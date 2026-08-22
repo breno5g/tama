@@ -24,13 +24,13 @@ while [ "$i" -lt "$n" ]; do
     ans=$(printf '%s' "$input" | jq -r ".tool_input.questions[$i].options[].label" | {
         set --
         while IFS= read -r label; do
-            set -- "$@" --opcoes "$label"
+            set -- "$@" --options "$label"
         done
-        $TAMA_CMD ask "$q" "$@" --opcoes "$FALLBACK" \
-            --de claude --timeout 120s --padrao "$FALLBACK"
+        $TAMA_CMD ask "$q" "$@" --options "$FALLBACK" \
+            --from claude --timeout 120s --default "$FALLBACK"
     })
     case "$ans" in
-    "$FALLBACK" | ignorada | "") exit 0 ;;
+    "$FALLBACK" | ignored | "") exit 0 ;;
     esac
     answers="$answers$header: $ans; "
     i=$((i + 1))

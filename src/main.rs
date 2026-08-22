@@ -1,5 +1,6 @@
 mod app;
 mod assistant;
+mod http;
 mod cli;
 mod i18n;
 mod pet;

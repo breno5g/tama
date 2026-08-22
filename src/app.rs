@@ -189,7 +189,7 @@ impl Inbox {
     // Drops the current message; answers a discarded Ask so callers never hang.
     fn advance(&mut self) {
         if let Some((Msg::Ask { id, .. }, _)) = self.current.take() {
-            let _ = assistant::write_answer(&id, i18n::ANSWER_IGNORED);
+            let _ = assistant::write_answer(&id, assistant::ANSWER_IGNORED);
         }
     }
 
@@ -197,7 +197,7 @@ impl Inbox {
         self.advance();
         for m in self.queue.drain(..) {
             if let Msg::Ask { id, .. } = m {
-                let _ = assistant::write_answer(&id, i18n::ANSWER_IGNORED);
+                let _ = assistant::write_answer(&id, assistant::ANSWER_IGNORED);
             }
         }
     }
@@ -376,7 +376,10 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
         save(pet)?;
     }
 
-    let rx = assistant::spawn_reader();
+    // FIFO and HTTP feed the same channel; the loop drains one stream.
+    let (tx, rx) = std::sync::mpsc::channel();
+    assistant::spawn_reader(tx.clone());
+    let http_status = crate::http::spawn_http(tx);
     // Stale answers would satisfy the wrong ask; a fresh session starts clean.
     // ponytail: races a CLI still polling from a previous session; accepted
     let _ = std::fs::write(crate::state::output_path(), "");
@@ -393,14 +396,15 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
     let mut ticks_250ms = 0u64;
     let mut prev_mood = pet.mood();
     let mut log: VecDeque<Line> = VecDeque::new();
+    push_line(&mut log, tinted(http_status, Color::DarkGrey));
 
     loop {
         let (time, hour) = clock.get();
         let now = assistant::now_epoch();
 
-        // Drain external messages from the input pipe.
+        // Drain external messages (pipe + HTTP share the channel).
         for line in rx.try_iter().collect::<Vec<_>>() {
-            let Some(msg) = assistant::parse_line(&line, now) else { continue };
+            for msg in assistant::parse_msgs(&line, now) {
             match msg {
                 Msg::Say { ref text, ref from, kind } => {
                     let sender = if from.is_empty() { i18n::UNKNOWN_SENDER } else { from };
@@ -424,7 +428,7 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                 }
                 Msg::Action(a) => {
                     match a.as_str() {
-                        "comemorar" => {
+                        "celebrate" => {
                             pet.happiness = adj(pet.happiness, 15);
                             pet.gain_xp(10);
                             inbox.queue.push_back(Msg::Say {
@@ -437,15 +441,15 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                             }
                             save(pet)?;
                         }
-                        "dormir" => {
+                        "sleep" => {
                             pet.sleeping = true;
                             push_log(&mut log, &time, i18n::msg_sleep(&pet.name, true), None);
                         }
-                        "acordar" => {
+                        "wake" => {
                             pet.sleeping = false;
                             push_log(&mut log, &time, i18n::msg_sleep(&pet.name, false), None);
                         }
-                        "alimentar" => {
+                        "feed" => {
                             pet.eat(&FOODS[0]);
                             push_log(&mut log, &time, i18n::msg_action_fed(&pet.name), Some(("(+15 fome)".into(), Color::Green)));
                             save(pet)?;
@@ -475,6 +479,7 @@ pub fn run(out: &mut impl Write, pet: &mut Pet, is_new: bool) -> io::Result<()> 
                         push_log(&mut log, &time, i18n::MSG_POMO_STOPPED.into(), None);
                     }
                 }
+            }
             }
         }
 

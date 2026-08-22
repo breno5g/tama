@@ -120,7 +120,6 @@ pub const FOOTER_ASK: [&str; 2] = ["[1-9] responder  [esc] ignorar  [a] modo pet
 pub const ASSISTANT_TAG: &str = "modo assistente";
 pub const PANEL_QUEUE: &str = "fila";
 pub const NO_MESSAGES: &str = "sem mensagens — esperando programas...";
-pub const ANSWER_IGNORED: &str = "ignorada";
 pub const TIMER_LABEL: &str = "timer";
 pub const TYPE_LABEL: &str = "tipo";
 pub const FROM_LABEL: &str = "de";
@@ -191,15 +190,27 @@ pub const FOOTER_POMO_ACTIVE: [&str; 2] = ["[enter] parar  [esc] voltar", "enter
 
 pub const CLI_NOT_RUNNING: &str = "tama não está rodando — abra o app primeiro";
 pub const CLI_PIPE_ERROR: &str = "não consegui escrever no pipe do tama";
-pub const CLI_USAGE_SAY: &str = "uso: tama say \"texto\" [--de origem] [--tipo info|sucesso|alerta|erro]";
+pub const CLI_USAGE_SAY: &str = "uso: tama say \"texto\" [--from origem] [--type info|success|warn|error]";
 pub const CLI_USAGE_ASK: &str =
-    "uso: tama ask \"pergunta\" [--opcoes a,b,c | --opcoes a --opcoes b ...] [--de origem] [--id id] [--timeout 60s] [--padrao resposta]";
+    "uso: tama ask \"pergunta\" [--options a,b,c | --options a --options b ...] [--from origem] [--id id] [--timeout 60s] [--default resposta]";
 pub const CLI_ASK_TIMEOUT: &str = "sem resposta do tama (timeout)";
-pub const CLI_USAGE_REMIND: &str = "uso: tama lembrar \"texto\" --em 10m";
+pub const CLI_USAGE_REMIND: &str = "uso: tama remind \"texto\" --in 10m";
 pub const CLI_USAGE_TIMER: &str = "uso: tama timer 25m";
-pub const CLI_USAGE_DO: &str = "uso: tama do comemorar|dormir|acordar|alimentar";
-pub const CLI_USAGE_WATCH: &str = "uso: tama watch [--de origem] comando [args...]";
-pub const CLI_USAGE_POMODORO: &str = "uso: tama pomodoro [25m] [--pausa 5m] | tama pomodoro parar";
+pub const CLI_USAGE_DO: &str = "uso: tama do celebrate|sleep|wake|feed";
+pub const CLI_USAGE_WATCH: &str = "uso: tama watch [--from origem] comando [args...]";
+pub const CLI_USAGE_POMODORO: &str = "uso: tama pomodoro [25m] [--break 5m] | tama pomodoro off";
+
+// HTTP (textos exibidos; o protocolo em si é inglês)
+pub fn msg_http_on(addr: &str) -> String {
+    format!("http ouvindo em {addr}")
+}
+pub const MSG_HTTP_OFF: &str = "http desligado (TAMA_HTTP=off)";
+pub fn msg_http_fail(addr: &str, err: &str) -> String {
+    format!("http falhou em {addr}: {err}")
+}
+pub const HTTP_ERR_BAD: &str = "mensagem inválida";
+pub const HTTP_ERR_TOKEN: &str = "token inválido";
+pub const HTTP_ERR_NOT_FOUND: &str = "não achei";
 pub const FOOTER_MENU: [&str; 2] = ["[↑↓] escolher  [enter] dar  [esc] voltar", "↑↓ enter esc"];
 pub const FOOTER_GAME: [&str; 2] = ["[1] pedra  [2] papel  [3] tesoura  [esc] voltar", "1 2 3 esc"];
 pub const FOOTER_PICKER: [&str; 2] = ["[←↑↓→] navegar  [enter] confirmar  [esc] voltar", "setas · enter · esc"];

@@ -55,29 +55,32 @@ ticker, progresso e eventos têm espaço reservado, então nada pula na tela.
 
 ## Modo assistente
 
-Programas externos falam com o tama por um named pipe; respostas saem num
-arquivo de saída. Mensagem chegando abre o modo assistente sozinha; perguntas
-furam a fila **e interrompem qualquer tela** (pomodoro, jogo, menu — ao
-responder você volta para onde estava); falas expiram em ~8s (ou `enter`).
+Programas externos falam com o tama por um named pipe **ou por HTTP**;
+respostas saem num arquivo de saída (pipe/CLI) ou na própria resposta HTTP.
+A API — comandos, flags, chaves e valores do protocolo — é em inglês; só o
+que aparece na tela segue em português. Mensagem chegando abre o modo
+assistente sozinha; perguntas furam a fila **e interrompem qualquer tela**
+(pomodoro, jogo, menu — ao responder você volta para onde estava); falas
+expiram em ~8s (ou `enter`).
 
 ### CLI (o jeito simples)
 
 ```bash
-tama say "deploy concluído!" --de deploy-bot --tipo sucesso
-tama ask "subir pra produção?" --opcoes sim,nao   # bloqueia; imprime a escolha
-tama ask "qual banco?" --opcoes "Postgres" --opcoes "Sim, o de sempre" \
-  --timeout 60s --padrao "Postgres"               # --opcoes repetível aceita vírgula;
-                                                  # expirou -> imprime o --padrao (sem ele: exit 124)
-tama lembrar "standup" --em 10m
+tama say "deploy concluído!" --from deploy-bot --type success
+tama ask "subir pra produção?" --options sim,nao  # bloqueia; imprime a escolha
+tama ask "qual banco?" --options "Postgres" --options "Sim, o de sempre" \
+  --timeout 60s --default "Postgres"              # --options repetível aceita vírgula;
+                                                  # expirou -> imprime o --default (sem ele: exit 124)
+tama remind "standup" --in 10m
 tama timer 25m                                    # regressivo no cabeçalho
-tama do comemorar                                 # comemorar · dormir · acordar · alimentar
+tama do celebrate                                 # celebrate · sleep · wake · feed
 tama watch cargo test --release                   # roda e reporta sucesso/erro sozinho
-tama pomodoro 25m --pausa 5m                      # ciclos de foco; "tama pomodoro parar" encerra
+tama pomodoro 25m --break 5m                      # ciclos de foco; "tama pomodoro off" encerra
 ```
 
 `tama watch` avisa quando o comando começa e reporta o resultado pelo exit
 code (verde/vermelho), repassando o exit code adiante — dá para usar no meio
-de qualquer script. `--de origem` renomeia a fonte; se o app não estiver
+de qualquer script. `--from origem` renomeia a fonte; se o app não estiver
 aberto, o comando roda mesmo assim. No pomodoro o cabeçalho mostra a fase
 (`foco`/`pausa`) com o regressivo, e o pet dorme junto nas pausas.
 
@@ -94,43 +97,76 @@ relógio; em painéis minúsculos, vira uma linha de status.
 Uso real num script:
 
 ```bash
-[ "$(tama ask 'rodar a suite lenta?' --opcoes sim,nao)" = "sim" ] && cargo test --release
+[ "$(tama ask 'rodar a suite lenta?' --options sim,nao)" = "sim" ] && cargo test --release
 ```
 
 Se o app não estiver aberto, o CLI falha em 2s com "tama não está rodando".
 
-### Pipe (qualquer linguagem, sem o binário)
+### HTTP — mande de qualquer projeto ou máquina
 
-Uma linha de JSON flat por mensagem em `~/.local/share/tama/input`:
+Com o app aberto, o tama ouve em `0.0.0.0:8262` (desligue com
+`TAMA_HTTP=off`, mude com `TAMA_HTTP=addr:porta`). Um POST com um JSON flat
+entrega a mensagem — de qualquer linguagem, inclusive de outra máquina da
+rede (PC → tablet sem ssh):
 
 ```bash
-echo '{"fala":"backup ok","tipo":"info","de":"cron"}'        > ~/.local/share/tama/input
-echo '{"pergunta":"subir?","opcoes":"sim\nnao","id":"rel-1"}' > ~/.local/share/tama/input
-echo '{"progresso":62,"de":"backup"}'                        > ~/.local/share/tama/input
-echo '{"lembrete":"standup","em":"10m"}'                     > ~/.local/share/tama/input
-echo '{"timer":"25m"}'                                       > ~/.local/share/tama/input
-echo '{"acao":"comemorar"}'                                  > ~/.local/share/tama/input
-echo '{"pomodoro":"25m","pausa":"5m"}'                       > ~/.local/share/tama/input
+curl -s http://tablet:8262/ -d '{"from":"ci","message":"build ok","type":"success"}'
+curl -s http://tablet:8262/ -d '{"from":"deploy","message":"subir?","actions":["sim","não"]}'
+curl -s http://tablet:8262/ -d '{"command":"celebrate","message":"merge!"}'
 ```
 
-Campos: `fala` · `pergunta`+`opcoes`+`id`+`expira` · `progresso` ·
-`lembrete`+`em` · `timer` · `acao` · `pomodoro`+`pausa` (`"pomodoro":"off"`
-encerra), mais `tipo` (`info|sucesso|alerta|erro`) e `de` (origem). Durações
-em `s|m|h`. Strings aceitam os escapes JSON `\n` `\t` `\r` `\"` `\\`; as
-opções são separadas por `\n` (então podem conter vírgula). `expira` é epoch
-absoluto: passou dele, a pergunta some da fila sem resposta (o CLI põe
-sozinho quando você usa `--timeout`, com contagem regressiva na tela).
-Linha inválida é ignorada em silêncio. Progresso é por origem: cada `de` tem
-sua própria barra no painel de eventos, então tarefas concorrentes não se
-atropelam (aos 100% a barra sai e vira evento de sucesso).
+```js
+await fetch("http://tablet:8262/", { method: "POST",
+  body: JSON.stringify({ from: "app", message: "ok?", actions: ["sim", "não"] }) })
+  .then(r => r.json()); // { answer: "sim" }
+```
 
-Respostas viram linhas JSON em `~/.local/share/tama/output`:
+Um POST com `actions` **segura a conexão até você responder na TUI** e
+devolve `{"answer":"sim"}`; sem resposta até `expires` (default: 5 min)
+devolve `408` + `{"answer":null}`. Os demais respondem `{"ok":true}` na
+hora; corpo inválido dá `400`. `GET /` responde `{"ok":true,"pet":"nome"}`
+(bom de health-check). Se `TAMA_TOKEN` estiver setado ao abrir o app, todo
+request precisa de `Authorization: Bearer <token>` (senão: aberto — pense
+LAN de casa; o HTTP não responde perguntas nem lê nada do pet).
+
+### Esquema de mensagem (HTTP e pipe, o mesmo)
+
+| chave | tipo | efeito |
+|---|---|---|
+| `message` | string | fala — ou pergunta, se houver `actions` |
+| `from` | string | origem exibida |
+| `type` | `info\|success\|warn\|error` | cor/expressão da fala |
+| `actions` | array de strings (ou string com `\n`) | opções de resposta (máx. 9) |
+| `command` | `celebrate\|sleep\|wake\|feed` | ação no pet; pode vir junto de `message` |
+| `id` | string | identifica a resposta (HTTP gera sozinho) |
+| `expires` | epoch | pergunta some sem resposta depois disso |
+| `progress` | 0-100 | barra por origem (100 encerra) |
+| `remind` + `in` | string + `30s\|10m\|1h` | lembrete |
+| `timer` | duração | regressivo no cabeçalho |
+| `pomodoro` + `break` | duração (`"off"` encerra) | ciclos de foco |
+
+Strings aceitam os escapes JSON `\n` `\t` `\r` `\"` `\\` (opção pode conter
+vírgula). Durações em `s|m|h`. Progresso é por origem: cada `from` tem sua
+própria barra, então tarefas concorrentes não se atropelam.
+
+### Pipe (mesmo esquema, sem rede)
+
+Uma linha de JSON flat por mensagem em `~/.local/share/tama/input`; linha
+inválida é ignorada em silêncio:
+
+```bash
+echo '{"message":"backup ok","type":"info","from":"cron"}' > ~/.local/share/tama/input
+echo '{"pomodoro":"25m","break":"5m"}'                     > ~/.local/share/tama/input
+```
+
+Respostas de perguntas viram linhas JSON em `~/.local/share/tama/output`
+(é onde o CLI e o HTTP esperam por elas):
 
 ```json
-{"id":"rel-1","resposta":"sim"}
+{"id":"rel-1","answer":"sim"}
 ```
 
-Pergunta descartada (esc, limpar fila ou sair do app) responde `"ignorada"` —
+Pergunta descartada (esc, limpar fila ou sair do app) responde `"ignored"` —
 nenhum script fica pendurado. Lembretes e timer valem enquanto o app está
 aberto.
 
@@ -152,8 +188,8 @@ ou quer sua atenção:
 ```json
 {
   "hooks": {
-    "Stop": [{"hooks": [{"type": "command", "command": "tama say 'claude terminou' --de claude --tipo sucesso"}]}],
-    "Notification": [{"hooks": [{"type": "command", "command": "tama say 'claude precisa de você' --de claude --tipo alerta"}]}]
+    "Stop": [{"hooks": [{"type": "command", "command": "tama say 'claude terminou' --from claude --type success"}]}],
+    "Notification": [{"hooks": [{"type": "command", "command": "tama say 'claude precisa de você' --from claude --type warn"}]}]
   }
 }
 ```
@@ -187,14 +223,14 @@ aparece no Claude Code normalmente — nada trava.
 **git** — comemore cada commit:
 
 ```bash
-printf '#!/bin/sh\ntama say "commit: $(git log -1 --pretty=%%s)" --de git --tipo sucesso\n' \
+printf '#!/bin/sh\ntama say "commit: $(git log -1 --pretty=%%s)" --from git --type success\n' \
   > .git/hooks/post-commit && chmod +x .git/hooks/post-commit
 ```
 
 **Qualquer build/CI local** — embrulhe no `watch`:
 
 ```bash
-tama watch --de deploy ./deploy.sh
+tama watch --from deploy ./deploy.sh
 ```
 
 ## Arquivos
@@ -214,8 +250,9 @@ tama watch --de deploy ./deploy.sh
 | `state.rs` | persistência |
 | `ui.rs` | renderização: painéis, tiers responsivos, telas |
 | `app.rs` | loop principal, telas interativas, fila do assistente |
-| `assistant.rs` | contrato do pipe: parser JSON flat, leitor, respostas |
-| `cli.rs` | subcomandos `say/ask/lembrar/timer/do/watch/pomodoro` |
+| `assistant.rs` | contrato das mensagens: parser JSON flat, leitor do pipe, respostas |
+| `http.rs` | servidor HTTP mínimo: POST → canal do app, long-poll de perguntas |
+| `cli.rs` | subcomandos `say/ask/remind/timer/do/watch/pomodoro` |
 | `i18n.rs` | todo texto visível (pt-BR; outro idioma entra só aqui) |
 
 Sem dependências além de `crossterm`. O renderer nunca limpa a tela (repinta
