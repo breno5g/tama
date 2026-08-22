@@ -348,12 +348,50 @@ pub fn kind_color(kind: Kind) -> Color {
     }
 }
 
-// The pet reacts to what it is saying, per the design's expression map.
-pub fn kind_mood(kind: Kind) -> Mood {
+// The pet reacts to what it is saying, per the design's expression map:
+// info = calm, success = happy, warn = wide eyes (no blink), error = sad.
+pub fn kind_face(kind: Kind, frame: usize) -> (char, char) {
+    let eye = if frame % 4 == 3 { '▄' } else { '█' };
     match kind {
-        Kind::Info | Kind::Success => Mood::Happy,
-        Kind::Warn => Mood::Hungry,
-        Kind::Error => Mood::Sad,
+        Kind::Info => (eye, '.'),
+        Kind::Success => (eye, 'w'),
+        Kind::Warn => ('O', 'o'),
+        Kind::Error => (';', '~'),
+    }
+}
+
+// The design's per-kind animations, dimension-preserving so nothing reflows:
+// success hops using the reserved top row; error shakes inside a reserved
+// side column; the rest stay still.
+fn animate_art(mut art: Vec<String>, kind: Kind, frame: usize) -> Vec<String> {
+    match kind {
+        Kind::Success => {
+            if frame % 2 == 1 {
+                art.remove(0);
+                let w = art.last().map(|l| l.chars().count()).unwrap_or(0);
+                art.push(" ".repeat(w));
+            }
+        }
+        Kind::Error => {
+            let left = frame % 2 == 0;
+            for l in art.iter_mut() {
+                if left {
+                    l.insert(0, ' ');
+                } else {
+                    l.push(' ');
+                }
+            }
+        }
+        _ => {}
+    }
+    art
+}
+
+fn animate_tiny(face: String, kind: Kind, frame: usize) -> String {
+    if kind == Kind::Error {
+        if frame % 2 == 0 { format!(" {face}") } else { format!("{face} ") }
+    } else {
+        face
     }
 }
 
@@ -729,7 +767,11 @@ pub fn draw_assistant(
 ) -> io::Result<()> {
     let (cols, rows) = terminal::size()?;
     let (iw, ih) = (cols.saturating_sub(2) as usize, rows.saturating_sub(2) as usize);
-    let mood = msg.map(|m| kind_mood(m.kind)).unwrap_or(Mood::Happy);
+    // Per-kind expression and animation; a calm happy face while idle.
+    let face = msg
+        .map(|m| kind_face(m.kind, frame))
+        .unwrap_or_else(|| Mood::Happy.face(frame % 4 == 3));
+    let kind = msg.map(|m| m.kind);
     let footers: &[&str] =
         if msg.is_some_and(|m| m.options.is_some()) { &i18n::FOOTER_ASK } else { &i18n::FOOTER_ASSISTANT };
 
@@ -737,7 +779,10 @@ pub fn draw_assistant(
     if iw >= 72 {
         let w = iw.min(96);
         for size in [ArtSize::Large, ArtSize::Small] {
-            let art = render_art(pet.species, mood, frame, size);
+            let mut art = crate::species::render_art_face(pet.species, size, face.0, face.1);
+            if let Some(k) = kind {
+                art = animate_art(art, k, frame);
+            }
             let right_w = w - art[0].chars().count() - 2;
             let left: Vec<Line> = art.iter().map(|l| plain(l.clone())).collect();
             let mut right = bubble_panel(msg, view.clock_text, right_w);
@@ -770,8 +815,11 @@ pub fn draw_assistant(
         // Compact tier, following the design's "pergunta" panel: the face
         // beside a small kind-colored bubble with a tail; asker and options
         // live inside the bubble. Fixed 4 body rows — no reflow.
-        let face = render_tiny(pet.species, mood, frame);
-        let bubble_w = (iw - face.chars().count() - 1).min(58);
+        let mut face_str = crate::species::render_tiny_face(pet.species, face.0, face.1);
+        if let Some(k) = kind {
+            face_str = animate_tiny(face_str, k, frame);
+        }
+        let bubble_w = (iw - face_str.chars().count() - 1).min(58);
         let inner = bubble_w.saturating_sub(4);
         let color = msg.map(|m| kind_color(m.kind)).unwrap_or(Color::DarkGrey);
         let mut body: Vec<Line> = Vec::new();
@@ -809,7 +857,8 @@ pub fn draw_assistant(
         }
         let mut bubble = boxed(None, color, &body, bubble_w);
         bubble[2][0] = seg("< ", Some(color));
-        let left: Vec<Line> = vec![Vec::new(), Vec::new(), tinted(face, mood_color(mood))];
+        let face_color = kind.map(kind_color).unwrap_or(Color::Green);
+        let left: Vec<Line> = vec![Vec::new(), Vec::new(), tinted(face_str, face_color)];
         let mut c = beside(&left, &bubble, 1);
         if queue_len > 0 && c.len() + 2 <= ih {
             c.push(tinted(format!("{} ({queue_len})", i18n::PANEL_QUEUE), Color::DarkGrey));
@@ -820,7 +869,9 @@ pub fn draw_assistant(
     }
     if content.is_empty() {
         // last resort: face + message + options as one left-aligned block
-        let mut rows: Vec<Line> = vec![tinted(render_tiny(pet.species, mood, frame), mood_color(mood))];
+        let face_color = kind.map(kind_color).unwrap_or(Color::Green);
+        let mut rows: Vec<Line> =
+            vec![tinted(crate::species::render_tiny_face(pet.species, face.0, face.1), face_color)];
         if let Some(m) = msg {
             let width = iw.max(10).min(60);
             rows.extend(wrap(m.text, width).into_iter().take(3).map(plain));
@@ -1007,6 +1058,35 @@ mod tests {
                     Some(b) => assert_eq!(*b, shape, "layout moved at {iw}x{ih} with {n} events"),
                 }
             }
+        }
+    }
+
+    #[test]
+    fn kind_faces_are_distinct_and_warn_never_blinks() {
+        let kinds = [Kind::Info, Kind::Success, Kind::Warn, Kind::Error];
+        for (i, a) in kinds.iter().enumerate() {
+            for b in kinds.iter().skip(i + 1) {
+                assert_ne!(kind_face(*a, 0), kind_face(*b, 0), "{a:?} vs {b:?}");
+            }
+        }
+        assert_eq!(kind_face(Kind::Warn, 3), kind_face(Kind::Warn, 0));
+        assert_ne!(kind_face(Kind::Info, 3).0, kind_face(Kind::Info, 0).0); // blinks
+    }
+
+    // Hop and shake must not change the art's footprint on any frame.
+    #[test]
+    fn kind_animations_preserve_dimensions() {
+        use crate::species::{render_art_face, Species};
+        for kind in [Kind::Info, Kind::Success, Kind::Warn, Kind::Error] {
+            let mut shapes = Vec::new();
+            for frame in 0..4 {
+                let (eye, mouth) = kind_face(kind, frame);
+                let art = animate_art(render_art_face(Species::Dragon, ArtSize::Large, eye, mouth), kind, frame);
+                let w = art[0].chars().count();
+                assert!(art.iter().all(|l| l.chars().count() == w), "{kind:?} misaligned at frame {frame}");
+                shapes.push((art.len(), w));
+            }
+            assert!(shapes.windows(2).all(|p| p[0] == p[1]), "{kind:?} footprint changed across frames");
         }
     }
 

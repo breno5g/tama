@@ -151,8 +151,7 @@ pub fn zzz(frame: usize) -> &'static str {
 }
 
 // Lines are padded to a uniform width so per-line centering keeps the block aligned.
-pub fn render_art(species: Species, mood: Mood, frame: usize, size: ArtSize) -> Vec<String> {
-    let (eye, mouth) = mood.face(frame % 4 == 3); // blink 1 in 4 frames
+fn render_lines(species: Species, size: ArtSize, eye: char, mouth: char, zzz_frame: Option<usize>) -> Vec<String> {
     let art = species.template(size).replace('%', &eye.to_string()).replace('&', &mouth.to_string());
     let mut lines: Vec<String> = art.lines().skip(1).map(String::from).collect();
     let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
@@ -162,9 +161,22 @@ pub fn render_art(species: Species, mood: Mood, frame: usize, size: ArtSize) -> 
     }
     // The zzz row is ALWAYS reserved (blank while awake) so falling asleep
     // never changes the art height — a sleep toggle must not reflow the layout.
-    let zline = if mood == Mood::Sleeping { format!("{:>width$}", zzz(frame)) } else { " ".repeat(width) };
+    let zline = match zzz_frame {
+        Some(frame) => format!("{:>width$}", zzz(frame)),
+        None => " ".repeat(width),
+    };
     lines.insert(0, zline);
     lines
+}
+
+pub fn render_art(species: Species, mood: Mood, frame: usize, size: ArtSize) -> Vec<String> {
+    let (eye, mouth) = mood.face(frame % 4 == 3); // blink 1 in 4 frames
+    render_lines(species, size, eye, mouth, (mood == Mood::Sleeping).then_some(frame))
+}
+
+// Art with an explicit face — the assistant's per-message-kind expressions.
+pub fn render_art_face(species: Species, size: ArtSize, eye: char, mouth: char) -> Vec<String> {
+    render_lines(species, size, eye, mouth, None)
 }
 
 // Width is constant across moods by construction (only single chars swap);
@@ -172,6 +184,10 @@ pub fn render_art(species: Species, mood: Mood, frame: usize, size: ArtSize) -> 
 // in a reserved trailing slot so it never shifts what sits next to the face.
 pub fn render_tiny(species: Species, mood: Mood, frame: usize) -> String {
     let (eye, mouth) = mood.face(frame % 4 == 3);
+    render_tiny_face(species, eye, mouth)
+}
+
+pub fn render_tiny_face(species: Species, eye: char, mouth: char) -> String {
     species.tiny_face().replace('%', &eye.to_string()).replace('&', &mouth.to_string())
 }
 
