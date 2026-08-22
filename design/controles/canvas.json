@@ -1,0 +1,12 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "title": "direção 1 — ícones", "x": 0, "y": 0, "w": 1000, "h": 720 },
+    { "file": "Overlay.dc.html", "title": "direção 2 — overlay", "x": 1080, "y": 0, "w": 1000, "h": 720 },
+    { "file": "Picker.dc.html", "x": 0, "y": 850, "w": 1000, "h": 560 }
+  ],
+  "annotations": [
+    { "id": "problema", "x": -380, "y": 0, "w": 340, "text": "Problema: 9 atalhos no rodape e um carrossel de 10 especies.\n\nDirecao 1 — barra de icones estilo tamagotchi: so 3 teclas (setas + enter + q). O mais fiel a identidade do app; custo: toda acao vira 2+ passos.\n\nDirecao 2 — menu overlay: rodape com 3 itens, espaco abre a lista com numeros. Acoes em 2 toques (espaco+numero); atalhos antigos (f p s b m z c) continuam funcionando escondidos para quem ja decorou.\n\nNas duas: [a] assistente continua direto (e a porta do modo assistente) e o seletor de pet vira grade." },
+    { "id": "nota-picker", "x": -380, "y": 850, "w": 340, "text": "Seletor em grade: as 10 carinhas visiveis de uma vez, navegacao em 2 eixos, e uma previa grande animada do selecionado abaixo. Substitui o carrossel um-a-um nas duas direcoes." }
+  ],
+  "launch": { "view": "canvas" }
+}

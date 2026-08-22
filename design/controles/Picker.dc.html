@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&amp;display=swap">
+  <style>
+    body { margin: 0; background: #16161e; }
+    a { color: #7dcfff; } a:hover { color: #b4f9f8; }
+  </style>
+</helmet>
+<div style="width: 1000px; height: 560px; box-sizing: border-box; background: #16161e; color: #c0caf5; font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 14px; padding: 24px; display: flex; flex-direction: column; gap: 18px;">
+  <div style="color: #bb9af7; font-weight: 700; font-size: 15px;">seletor de pet em grade (vale para as duas direções)</div>
+  <div style="text-align: center; color: #bb9af7;">escolha seu pet <span style="color: #565f89;">(4/10)</span></div>
+  <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px;"><div style="border: 1px solid #3b4261; padding: 14px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;"><span style="color: #9ece6a; font-size: 13px; white-space: pre;">(=^ █w█ ^=)</span><span style="color: #a9b1d6; font-size: 12px;">gato</span></div><div style="border: 1px solid #3b4261; padding: 14px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;"><span style="color: #9ece6a; font-size: 13px; white-space: pre;">∩( █w█ )∩</span><span style="color: #a9b1d6; font-size: 12px;">cachorro</span></div><div style="border: 1px solid #3b4261; padding: 14px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;"><span style="color: #9ece6a; font-size: 13px; white-space: pre;">\\( █w█ )//</span><span style="color: #a9b1d6; font-size: 12px;">coelho</span></div><div style="border: 1px solid #7dcfff; padding: 14px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;"><span style="color: #9ece6a; font-size: 13px; white-space: pre;">&lt;{ █w█ }&gt;</span><span style="color: #7dcfff; font-size: 12px;">dragão</span></div><div style="border: 1px solid #3b4261; padding: 14px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;"><span style="color: #9ece6a; font-size: 13px; white-space: pre;">~( █w█ )~</span><span style="color: #a9b1d6; font-size: 12px;">fantasma</span></div><div style="border: 1px solid #3b4261; padding: 14px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;"><span style="color: #9ece6a; font-size: 13px; white-space: pre;">o( █w█ )o</span><span style="color: #a9b1d6; font-size: 12px;">sapo</span></div><div style="border: 1px solid #3b4261; padding: 14px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;"><span style="color: #9ece6a; font-size: 13px; white-space: pre;">(( █w█ ))</span><span style="color: #a9b1d6; font-size: 12px;">coruja</span></div><div style="border: 1px solid #3b4261; padding: 14px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;"><span style="color: #9ece6a; font-size: 13px; white-space: pre;">=( █w█ )=</span><span style="color: #a9b1d6; font-size: 12px;">raposa</span></div><div style="border: 1px solid #3b4261; padding: 14px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;"><span style="color: #9ece6a; font-size: 13px; white-space: pre;">d( █w█ )b</span><span style="color: #a9b1d6; font-size: 12px;">pinguim</span></div><div style="border: 1px solid #3b4261; padding: 14px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;"><span style="color: #9ece6a; font-size: 13px; white-space: pre;">}( █w█ ){</span><span style="color: #a9b1d6; font-size: 12px;">polvo</span></div></div>
+  <div style="border: 1px solid #3b4261; padding: 12px; text-align: center; color: #565f89; font-size: 12px;">o pet selecionado aparece em arte grande aqui embaixo (dragão no exemplo), animando — a grade dá visão geral, a prévia dá o charme</div>
+  <div style="display: flex; gap: 14px; justify-content: center; color: #565f89; font-size: 12px;">
+    <span><span style="background: #2f3549; color: #7dcfff; padding: 1px 7px; border-radius: 3px;">←↑↓→</span> navegar</span>
+    <span><span style="background: #2f3549; color: #7dcfff; padding: 1px 7px; border-radius: 3px;">enter</span> confirmar</span>
+    <span><span style="background: #2f3549; color: #7dcfff; padding: 1px 7px; border-radius: 3px;">esc</span> voltar</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
