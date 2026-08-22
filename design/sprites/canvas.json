@@ -1,12 +1,15 @@
 {
   "artboards": [
-    { "file": "Main.dc.html", "title": "cachorro", "x": 0, "y": 0, "w": 1040, "h": 560 },
-    { "file": "Coelho.dc.html", "x": 0, "y": 690, "w": 1040, "h": 560 },
-    { "file": "Dragao.dc.html", "x": 0, "y": 1380, "w": 1100, "h": 560 }
+    { "file": "Main.dc.html", "title": "cachorro", "x": 0, "y": 0, "w": 1400, "h": 580 },
+    { "file": "Coelho.dc.html", "x": 0, "y": 710, "w": 1400, "h": 600 },
+    { "file": "Dragao.dc.html", "x": 0, "y": 1440, "w": 1470, "h": 580 },
+    { "file": "Gato.dc.html", "x": 0, "y": 2150, "w": 1000, "h": 600 },
+    { "file": "Fantasma.dc.html", "x": 1080, "y": 2150, "w": 940, "h": 560 },
+    { "file": "Novos.dc.html", "x": 0, "y": 2880, "w": 1560, "h": 540 }
   ],
   "annotations": [
-    { "id": "como-escolher", "x": 1120, "y": 0, "w": 320, "text": "Sprites novos para o tama\n\nAs silhuetas atuais nao carregam a assinatura de cada bicho — estes candidatos exageram exatamente o traco que identifica cada um: orelha caida (cachorro), orelhao com miolo (coelho), chifre varrido + asa + presa (dragao).\n\nEscolha por bicho: responda tipo 'cachorro A, coelho A, dragao B'. Dai eu implemento os escolhidos + as versoes compacta e mini de cada um.\n\nRestricoes mantidas: olhos e boca sao caracteres unicos trocaveis por humor, largura uniforme, linha do zzz reservada." },
-    { "id": "nota-gato-fantasma", "x": 1120, "y": 420, "w": 300, "text": "Gato e fantasma ficaram de fora de proposito — as silhuetas atuais ja leem bem. Se quiser candidatos pra eles tambem, e so pedir." }
+    { "id": "como-escolher", "x": -380, "y": 0, "w": 340, "text": "Sprites novos para o tama — rodada 2\n\nAgora com 3 opcoes por bicho problematico, alternativas para gato e fantasma, e 5 bichos novos candidatos a entrar no app.\n\nEscolha por bicho + quais novos entram, ex: 'cachorro A, coelho A, dragao A, gato B, fantasma atual, e adiciona sapo e coruja'.\n\nDai eu implemento os escolhidos + versoes compacta e mini de cada um. Restricoes mantidas: olhos/boca trocaveis por humor, largura uniforme, linha do zzz reservada." },
+    { "id": "nota-novos", "x": -380, "y": 2880, "w": 340, "text": "Bicho novo custa pouco no codigo (template grande + compacto + carinha de 1 linha + gostos/personalidade/som no i18n). Os 5 foram escolhidos por silhueta forte em monocromatico." }
   ],
   "launch": { "view": "canvas" }
 }
