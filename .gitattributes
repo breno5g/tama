@@ -1,0 +1,4 @@
+# Os arquivos de design (.dc.html) sao artefatos de documentacao, nao codigo.
+# Sem isso o Linguist conta 4,5 MB de HTML contra 244 KB de Rust e rotula o
+# repositorio como HTML.
+design/** linguist-documentation
